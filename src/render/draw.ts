@@ -8,7 +8,8 @@ import {
   R_TOWER,
   SPREAD_R,
   STACK_R,
-  WAYMARK_HALF,
+  WAYMARK_LETTER_R,
+  WAYMARK_NUM_HALF,
   WAYMARK_NUM_R,
   WAYMARK_R,
 } from '../sim/constants';
@@ -151,18 +152,15 @@ export function draw(
   ctx.textBaseline = 'middle';
   for (const w of WAYMARKS) {
     const [x, y] = P(compass(w.deg, w.r));
-    const s = WAYMARK_HALF * k;
     ctx.strokeStyle = w.color;
     ctx.globalAlpha = 0.75;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    if (w.shape === 'circle') ctx.arc(x, y, s, 0, Math.PI * 2);
+    if (w.shape === 'circle') ctx.arc(x, y, WAYMARK_LETTER_R * k, 0, Math.PI * 2);
     else {
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate(Math.PI / 4);
-      ctx.rect(-s * 0.8, -s * 0.8, s * 1.6, s * 1.6);
-      ctx.restore();
+      // number marks are squares aligned to the world axes
+      const s = WAYMARK_NUM_HALF * k;
+      ctx.rect(x - s, y - s, s * 2, s * 2);
     }
     ctx.stroke();
     ctx.fillStyle = w.color;

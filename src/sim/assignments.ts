@@ -3,7 +3,8 @@ import {
   R_OUTER_RING,
   TOWER_DIST,
   TOWER_HALFSEP,
-  WAYMARK_HALF,
+  WAYMARK_LETTER_R,
+  WAYMARK_NUM_HALF,
   WAYMARK_NUM_R,
   WAYMARK_R,
   prioIndex,
@@ -88,11 +89,12 @@ const EVEN = {
  * NUMBER mark there — stand at its back corner.
  */
 function coneBaitMark(southDeg: number, side: 'left' | 'right'): readonly [number, number] {
-  // number-mark corner = 0.8 * half-size * sqrt2 (the diamond is drawn at 0.8 scale, rotated 45°)
+  // number marks are world-axis-aligned squares centered on the intercards, so
+  // their near/far corners lie on the intercard azimuth at half-side * sqrt2
   const r =
     southDeg % 90 === 0
-      ? WAYMARK_R - WAYMARK_HALF
-      : WAYMARK_NUM_R + 0.8 * WAYMARK_HALF * Math.SQRT2;
+      ? WAYMARK_R - WAYMARK_LETTER_R
+      : WAYMARK_NUM_R + WAYMARK_NUM_HALF * Math.SQRT2;
   return [side === 'left' ? 270 : 90, r];
 }
 

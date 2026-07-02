@@ -2,7 +2,8 @@ import type { Spot } from './types';
 
 // ---- World geometry (yalms). North = up, compass angles in degrees clockwise from N.
 // Measured from the analyzer.wtfdig.info log replay (arena rim = canvas edge,
-// scale anchored at R_ARENA = 20).
+// scale anchored at R_ARENA = 20), cross-checked against the reference set
+// diagrams (SVG scale 0.07y/unit — boss rings and tower distance match exactly).
 export const R_ARENA = 20;
 /** Kefka's outer hitbox / target ring — clone baiters stand ON this. */
 export const R_OUTER_RING = 8.4;
@@ -17,25 +18,27 @@ export const R_DEADZONE = 4.8;
 export const TOWER_DIST = 11.2;
 /** towers sit at relative-south ± this (degrees) — ±45 measured from the log replay */
 export const TOWER_HALFSEP = 45;
-export const R_TOWER = 5.5;
+export const R_TOWER = 5.6;
 
 /**
- * Waymarks: numbers 1/2/3/4 on the intercards at 11.5y (measured from the log
- * replay); letters A/B/C/D on the cardinals at exactly numbers x sqrt2, so each
- * number sits on the midpoint of the A-B-C-D square's edge (the path
- * A-2-B-3-C-4-D-1 traces that square). Keeping the letters on this radius also
- * keeps the even-set letter-mark cone bait nearest to its cone soaker.
+ * Waymarks (from the reference diagrams, 0.07y per SVG unit): letters A/B/C/D
+ * on the cardinals at 16.8y; numbers 1/2/3/4 on the intercards at exactly
+ * letters / sqrt2, so each number sits on the midpoint of the A-B-C-D square's
+ * edge (the path A-2-B-3-C-4-D-1 traces that square). Keeping this relation
+ * also keeps the even-set letter-mark cone bait nearest to its cone soaker.
  */
-export const WAYMARK_NUM_R = 11.5;
-export const WAYMARK_R = WAYMARK_NUM_R * Math.SQRT2;
-/** marker half-size (yalms) — shared by rendering and the bait-on-marker math */
-export const WAYMARK_HALF = 1.5;
+export const WAYMARK_R = 16.8;
+export const WAYMARK_NUM_R = WAYMARK_R / Math.SQRT2;
+/** letter marks are circles of this radius (yalms) */
+export const WAYMARK_LETTER_R = 1.75;
+/** number marks are world-axis-aligned squares of this half-side (yalms) */
+export const WAYMARK_NUM_HALF = 1.59;
 
-// ---- AoE sizes
+// ---- AoE sizes (reference diagrams: spread = stack = inner ring = 7.0)
 export const STACK_R = 7;
-export const SPREAD_R = 5.5;
+export const SPREAD_R = 7;
 export const CONE_HALF_DEG = 45;
-export const CONE_LEN = 30;
+export const CONE_LEN = 22.4;
 export const MAX_MELEE = 12;
 
 // ---- Movement
