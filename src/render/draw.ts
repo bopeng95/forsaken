@@ -295,26 +295,73 @@ export function draw(
     drawPlayer(ctx, eng, s, P, k, s === eng.userSpot);
   }
 
-  // ---- fail ghost
-  if (eng.result?.kind === 'fail' && eng.result.ghost) {
-    const [x, y] = P(eng.result.ghost);
-    const pulse = 1 + 0.15 * Math.sin(performance.now() / 150);
-    ctx.strokeStyle = 'rgba(255,220,90,0.95)';
+  // ---- fail marks
+  if (eng.result?.kind === 'fail') {
+    const res = eng.result;
+
+    // the AoE area that caused the fail, highlighted under the player marks
+    if (res.zone) {
+      const [x, y] = P(res.zone.pos);
+      ctx.beginPath();
+      if (res.zone.kind === 'cone') {
+        const half = (CONE_HALF_DEG * Math.PI) / 180;
+        const dir = res.zone.dirRad + viewRotRad;
+        ctx.moveTo(x, y);
+        ctx.arc(x, y, CONE_LEN * k, dir - half, dir + half);
+        ctx.closePath();
+      } else {
+        ctx.arc(x, y, res.zone.r * k, 0, Math.PI * 2);
+      }
+      ctx.fillStyle = 'rgba(255,80,80,0.25)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,80,80,0.9)';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    }
+
+    // players wrongly caught by the failing AoE
+    ctx.strokeStyle = 'rgba(255,80,80,0.95)';
+    ctx.lineWidth = 4;
+    for (const s of res.hit ?? []) {
+      const [x, y] = P(eng.positions[s]);
+      ctx.beginPath();
+      ctx.moveTo(x - 0.9 * k, y - 0.9 * k);
+      ctx.lineTo(x + 0.9 * k, y + 0.9 * k);
+      ctx.moveTo(x + 0.9 * k, y - 0.9 * k);
+      ctx.lineTo(x - 0.9 * k, y + 0.9 * k);
+      ctx.stroke();
+    }
+
+    // players the AoE was supposed to hit but missed
+    ctx.strokeStyle = 'rgba(255,80,80,0.9)';
     ctx.lineWidth = 3;
-    ctx.setLineDash([5, 4]);
-    ctx.beginPath();
-    ctx.arc(x, y, 1.5 * k * pulse, 0, Math.PI * 2);
-    ctx.stroke();
+    ctx.setLineDash([4, 3]);
+    for (const s of res.missed ?? []) {
+      const [x, y] = P(eng.positions[s]);
+      ctx.beginPath();
+      ctx.arc(x, y, 1.4 * k, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.moveTo(x - 0.8 * k, y - 0.8 * k);
-    ctx.lineTo(x + 0.8 * k, y + 0.8 * k);
-    ctx.moveTo(x + 0.8 * k, y - 0.8 * k);
-    ctx.lineTo(x - 0.8 * k, y + 0.8 * k);
-    ctx.stroke();
-    ctx.fillStyle = 'rgba(255,220,90,0.95)';
-    ctx.font = `700 ${0.8 * k}px system-ui, sans-serif`;
-    ctx.fillText('you should be here', x, y - 2.2 * k);
+
+    // where the user should have been
+    if (res.ghost) {
+      const [x, y] = P(res.ghost);
+      const pulse = 1 + 0.15 * Math.sin(performance.now() / 150);
+      ctx.strokeStyle = 'rgba(255,220,90,0.95)';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.arc(x, y, 1.5 * k * pulse, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(x - 0.8 * k, y - 0.8 * k);
+      ctx.lineTo(x + 0.8 * k, y + 0.8 * k);
+      ctx.moveTo(x + 0.8 * k, y - 0.8 * k);
+      ctx.lineTo(x - 0.8 * k, y + 0.8 * k);
+      ctx.stroke();
+    }
   }
 
   ctx.restore();
@@ -396,13 +443,13 @@ function drawPlayer(
     }
   }
 
-  // Spell's Trouble pips
+  // Spell's Trouble pips — user only, below the token
   const pips = eng.stacksLeft[s];
-  if (pips > 0) {
+  if (isUser && pips > 0) {
     ctx.fillStyle = '#c390f0';
     for (let i = 0; i < pips; i++) {
       const px = x - ((pips - 1) * 0.42 * k) / 2 + i * 0.42 * k;
-      const py = iy - 1.15 * k;
+      const py = y + 1.5 * k;
       ctx.save();
       ctx.translate(px, py);
       ctx.rotate(Math.PI / 4);

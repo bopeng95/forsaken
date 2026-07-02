@@ -15,10 +15,13 @@ import {
   SETUP_T,
   SNAPSHOT_DELAY,
   SPREAD_R,
+  SPRINT_COOLDOWN,
+  SPRINT_DURATION,
+  SPRINT_SPEED,
   STACK_R,
   TELEGRAPH_T,
 } from './constants';
-import type { AttemptScript, Icon, Result, Spot, Vec2 } from './types';
+import type { AttemptScript, FailInfo, FailZone, Icon, Result, Spot, Vec2 } from './types';
 import { SPOTS } from './types';
 
 type EventKind = 'spawn' | 'resolve' | 'snapshot' | 'lock' | 'cleave' | 'clear';
@@ -83,6 +86,9 @@ export class SimEngine {
   baitMarker: Vec2 | null = null;
   /** last set that spawned (for HUD progress) */
   currentSet = 0;
+
+  private sprintUntil = -Infinity;
+  private sprintReadyAt = 0;
 
   private timeline: TimelineEvent[];
   private nextEvent = 0;
@@ -152,19 +158,25 @@ export class SimEngine {
     return null;
   }
 
-  update(dt: number, userInput: Vec2, autopilot: boolean): void {
+  update(dt: number, userInput: Vec2, autopilot: boolean, sprint = false): void {
     if (this.result) return;
     // clamp dt so a background tab doesn't teleport the sim
     dt = Math.min(dt, 0.1);
     this.t += dt;
 
+    if (sprint && this.t >= this.sprintReadyAt) {
+      this.sprintUntil = this.t + SPRINT_DURATION;
+      this.sprintReadyAt = this.t + SPRINT_COOLDOWN;
+    }
+
     // movement
     const step = BOT_SPEED * dt;
+    const userSpeed = this.t < this.sprintUntil ? SPRINT_SPEED : MOVE_SPEED;
     for (const s of SPOTS) {
       if (s === this.userSpot && !autopilot) {
         const len = Math.hypot(userInput.x, userInput.y);
         if (len > 1e-6) {
-          const k = (MOVE_SPEED * dt) / Math.max(1, len);
+          const k = (userSpeed * dt) / Math.max(1, len);
           this.positions[s] = clampToArena({
             x: this.positions[s].x + userInput.x * k,
             y: this.positions[s].y + userInput.y * k,
@@ -191,7 +203,14 @@ export class SimEngine {
     this.effects = this.effects.filter((e) => e.until > this.t);
   }
 
-  private fail(info: { reason: string; ghost?: Vec2 }): void {
+  get sprint(): { activeLeft: number; cooldownLeft: number } {
+    return {
+      activeLeft: Math.max(0, this.sprintUntil - this.t),
+      cooldownLeft: Math.max(0, this.sprintReadyAt - this.t),
+    };
+  }
+
+  private fail(info: FailInfo): void {
     this.result = { kind: 'fail', ...info };
   }
 
@@ -232,8 +251,9 @@ export class SimEngine {
       }
       case 'resolve': {
         this.resolveTowers(plan);
-        this.activeTowers = null;
+        // on fail, keep the tower telegraph on the frozen scene
         if (this.result) return;
+        this.activeTowers = null;
         // odd resolve: the even spawn at the same instant sets the next hint
         if (plan.parity === 'even') this.hint = 'Clones incoming — get ready to stack!';
         break;
@@ -259,6 +279,7 @@ export class SimEngine {
           this.fail({
             reason: `You weren't stacked with the party for the ${plan.future ? 'FUTURE' : 'PAST'} bait — clones aim at the group.`,
             ghost: plan.baitPos!,
+            zone: { kind: 'circle', pos: plan.baitPos!, r: BAIT_TOL },
           });
           return;
         }
@@ -326,19 +347,23 @@ export class SimEngine {
       if (same) continue;
 
       const sideName = side.toUpperCase();
+      const zone: FailZone = { kind: 'circle', pos: plan.towerCenters[side], r: R_TOWER };
       if (expected.includes(user) && !actual.includes(user)) {
         this.fail({
           reason: `You missed your tower — you were assigned the ${sideName} tower (set ${plan.setIdx}).`,
           ghost: plan.duties[user].pos,
+          zone,
         });
       } else if (actual.includes(user) && !expected.includes(user)) {
         this.fail({
           reason: `You soaked the ${sideName} tower, but it belonged to ${expected.join(' + ')}.`,
           ghost: plan.duties[user].pos,
+          zone,
         });
       } else {
         this.fail({
           reason: `The ${sideName} tower resolved with ${actual.length} player(s) — towers need exactly 2.`,
+          zone,
         });
       }
       return;
@@ -378,23 +403,40 @@ export class SimEngine {
       const baiter = plan.coneBaiter[c]!;
       const ok = hits.length === 1 && hits[0] === baiter;
       if (ok) continue;
+      const hit = hits.filter((s) => s !== baiter);
+      const missed = hits.includes(baiter) ? [] : [baiter];
+      const zone: FailZone = { kind: 'cone', pos: { ...src }, dirRad };
       if (user === baiter && nearest !== user) {
         this.fail({
           reason: `You failed to bait ${c}'s cone — ${nearest} was closer than you.`,
           ghost: plan.duties[user].pos,
+          hit,
+          missed,
+          zone,
         });
       } else if (hits.includes(user) && user !== baiter) {
         this.fail({
           reason: `You were clipped by ${c}'s cone (it fires at the nearest player and hits everyone in the wedge).`,
           ghost: plan.duties[user].pos,
+          hit,
+          missed,
+          zone,
         });
       } else if (user === c) {
         this.fail({
           reason: `Your cone hit ${hits.join(', ') || 'nobody'} — it must hit only ${baiter}. Position so ${baiter} is nearest.`,
           ghost: plan.duties[user].pos,
+          hit,
+          missed,
+          zone,
         });
       } else {
-        this.fail({ reason: `${c}'s cone hit ${hits.length} players (${hits.join(', ')}) — it must hit only ${baiter}.` });
+        this.fail({
+          reason: `${c}'s cone hit ${hits.length} players (${hits.join(', ')}) — it must hit only ${baiter}.`,
+          hit,
+          missed,
+          zone,
+        });
       }
       return;
     }
@@ -406,18 +448,23 @@ export class SimEngine {
       this.effects.push({ kind: 'spread', pos: { ...src }, until: this.t + 1.2 });
       const clipped = SPOTS.filter((s) => s !== sp && dist(this.positions[s], src) <= SPREAD_R);
       if (clipped.length === 0) continue;
+      const zone: FailZone = { kind: 'circle', pos: { ...src }, r: SPREAD_R };
       if (sp === user) {
         this.fail({
           reason: `Your SPREAD clipped ${clipped.join(', ')} — keep it isolated south of the tower.`,
           ghost: plan.duties[user].pos,
+          hit: clipped,
+          zone,
         });
       } else if (clipped.includes(user)) {
         this.fail({
           reason: `You stood in ${sp}'s spread AoE.`,
           ghost: plan.duties[user].pos,
+          hit: clipped,
+          zone,
         });
       } else {
-        this.fail({ reason: `${sp}'s spread clipped ${clipped.join(', ')}.` });
+        this.fail({ reason: `${sp}'s spread clipped ${clipped.join(', ')}.`, hit: clipped, zone });
       }
       return;
     }
@@ -430,20 +477,32 @@ export class SimEngine {
       const members = SPOTS.filter((s) => dist(this.positions[s], src) <= STACK_R);
       if (members.length === 3) continue;
       const expected = plan.stackMembers[h] ?? [];
+      const hit = members.filter((s) => !expected.includes(s));
+      const missed = expected.filter((s) => !members.includes(s));
+      const zone: FailZone = { kind: 'circle', pos: { ...src }, r: STACK_R };
       if (members.length < 3 && expected.includes(user) && !members.includes(user)) {
         this.fail({
           reason: `${h}'s stack only had ${members.length} — you were supposed to share it.`,
           ghost: plan.duties[user].pos,
+          hit,
+          missed,
+          zone,
         });
       } else if (members.length > 3 && members.includes(user) && !expected.includes(user)) {
         this.fail({
           reason: `${h}'s stack had ${members.length} players — you didn't belong in it.`,
           ghost: plan.duties[user].pos,
+          hit,
+          missed,
+          zone,
         });
       } else {
         this.fail({
           reason: `${h}'s stack resolved with ${members.length} players — it needs exactly 3.`,
           ghost: expected.includes(user) ? plan.duties[user].pos : undefined,
+          hit,
+          missed,
+          zone,
         });
       }
       return;
@@ -468,18 +527,26 @@ export class SimEngine {
     const same = expected.every((s) => actual.includes(s));
     if (same) return true;
 
+    // the "closest 4" boundary: everyone inside this ring got a clone
+    const zone: FailZone = {
+      kind: 'circle',
+      pos: { x: 0, y: 0 },
+      r: Math.hypot(this.positions[sorted[3]].x, this.positions[sorted[3]].y),
+    };
     if (actual.includes(user) && !expected.includes(user)) {
       this.fail({
         reason: 'A Kefka clone spawned on you — you were among the 4 players closest to the boss.',
         ghost: plan.duties[user].pos,
+        zone,
       });
     } else if (expected.includes(user) && !actual.includes(user)) {
       this.fail({
         reason: 'You were assigned a clone bait but were not among the 4 closest to the boss.',
         ghost: plan.duties[user].pos,
+        zone,
       });
     } else {
-      this.fail({ reason: `Clones spawned on the wrong players (${actual.join(', ')}).` });
+      this.fail({ reason: `Clones spawned on the wrong players (${actual.join(', ')}).`, zone });
     }
     return false;
   }
