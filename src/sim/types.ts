@@ -57,10 +57,20 @@ export interface StartPrefs {
   icon: IconPref;
 }
 
+export type FailZone =
+  | { kind: 'cone'; pos: Vec2; dirRad: number }
+  | { kind: 'circle'; pos: Vec2; r: number };
+
 export type FailInfo = {
   reason: string;
   /** where the user should have been, if applicable */
   ghost?: Vec2;
+  /** players wrongly caught by the failing AoE */
+  hit?: Spot[];
+  /** players the failing AoE was supposed to hit but missed */
+  missed?: Spot[];
+  /** the AoE area that caused the fail, drawn highlighted on the frozen scene */
+  zone?: FailZone;
 };
 
 export type Result = { kind: 'clear' } | ({ kind: 'fail' } & FailInfo);

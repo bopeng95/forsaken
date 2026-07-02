@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { attachKeyboard, inputVec } from '../input/keyboard';
+import { attachKeyboard, consumeSprint, inputVec } from '../input/keyboard';
 import { Legend } from './Legend';
 import { draw } from '../render/draw';
 import { SimEngine } from '../sim/engine';
@@ -13,6 +13,10 @@ interface Ui {
   setIdx: number;
   icon: Icon | null;
   pips: number;
+  /** whole seconds of sprint buff left (0 = not sprinting) */
+  sprintActive: number;
+  /** whole seconds until Shift is available again (0 = ready) */
+  sprintCd: number;
   result: Result | null;
 }
 
@@ -79,6 +83,7 @@ export function GameView({
         dt,
         { x: v.x * rc - v.y * rs, y: v.x * rs + v.y * rc },
         autopilotRef.current,
+        consumeSprint(),
       );
 
       const cssSize = canvas.clientWidth;
@@ -94,6 +99,7 @@ export function GameView({
       ctx.restore();
 
       const cast = engine.castBar;
+      const sprint = engine.sprint;
       const snapshot: Ui = {
         hint: engine.hint,
         castLabel: cast?.label ?? null,
@@ -101,6 +107,8 @@ export function GameView({
         setIdx: engine.currentSet,
         icon: engine.icons[spot],
         pips: engine.stacksLeft[spot],
+        sprintActive: Math.ceil(sprint.activeLeft),
+        sprintCd: Math.ceil(sprint.cooldownLeft),
         result: engine.result,
       };
       const json = JSON.stringify(snapshot);
@@ -149,7 +157,16 @@ export function GameView({
 
         <div className="hud-bottom">{ui?.hint}</div>
         </div>
-        <Legend />
+        <div className="side-col">
+          <Legend />
+          <div className={`sprint-panel${ui && ui.sprintActive > 0 ? ' active' : ''}`}>
+            {!ui || ui.sprintCd === 0
+              ? 'Sprint ready — press Shift'
+              : ui.sprintActive > 0
+                ? `Sprinting — ${ui.sprintActive}s (recharge ${ui.sprintCd}s)`
+                : `Sprint recharging — ${ui.sprintCd}s`}
+          </div>
+        </div>
       </div>
 
       <div className="toolbar">

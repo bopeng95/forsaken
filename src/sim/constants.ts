@@ -20,16 +20,19 @@ export const TOWER_HALFSEP = 45;
 export const R_TOWER = 5.5;
 
 /**
- * Waymarks: letters A/B/C/D on the cardinals at 16.9y, numbers 1/2/3/4 on the
- * intercards at 11.5y (both measured from the log replay).
+ * Waymarks: numbers 1/2/3/4 on the intercards at 11.5y (measured from the log
+ * replay); letters A/B/C/D on the cardinals at exactly numbers x sqrt2, so each
+ * number sits on the midpoint of the A-B-C-D square's edge (the path
+ * A-2-B-3-C-4-D-1 traces that square). Keeping the letters on this radius also
+ * keeps the even-set letter-mark cone bait nearest to its cone soaker.
  */
-export const WAYMARK_R = 16.9;
 export const WAYMARK_NUM_R = 11.5;
+export const WAYMARK_R = WAYMARK_NUM_R * Math.SQRT2;
 /** marker half-size (yalms) — shared by rendering and the bait-on-marker math */
-export const WAYMARK_HALF = 2.0;
+export const WAYMARK_HALF = 1.5;
 
 // ---- AoE sizes
-export const STACK_R = 5;
+export const STACK_R = 7;
 export const SPREAD_R = 5.5;
 export const CONE_HALF_DEG = 45;
 export const CONE_LEN = 30;
@@ -39,6 +42,11 @@ export const MAX_MELEE = 12;
 export const MOVE_SPEED = 6.0;
 /** bots "sprint" slightly so they always make position after big tower rotations */
 export const BOT_SPEED = 6.6;
+/** FFXIV Sprint is +30% movement speed */
+export const SPRINT_SPEED = MOVE_SPEED * 1.3;
+export const SPRINT_DURATION = 10;
+/** recharge starts at the press, not when the buff ends */
+export const SPRINT_COOLDOWN = 60;
 
 // ---- Timings (seconds), matched to the cactbot dancing_mad timeline:
 // towers resolve every ~10s; the even-set Past/Future sequence overlaps the
