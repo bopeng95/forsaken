@@ -54,7 +54,10 @@ export function Legend() {
         <circle cx="11.5" cy="18" r="1.4" fill="rgba(255,250,220,0.9)" />
         <circle cx="16.5" cy="18" r="1.4" fill="rgba(255,250,220,0.9)" />
       </Item>
-      <Item name="Clone" desc="Kefka clone — half-arena cleave aimed at the locked bait.">
+      <Item
+        name="Clone"
+        desc="Kefka clone — its aim line tracks the party, locks red at All Things Ending, then it cleaves that half of the arena."
+      >
         <circle
           cx="14"
           cy="14"
