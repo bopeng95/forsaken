@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { GameView } from './components/GameView';
 import { StartScreen } from './components/StartScreen';
-import type { Spot } from './sim/types';
+import { findSeed } from './sim/randomizer';
+import type { Spot, StartPrefs } from './sim/types';
 
 function randomSeed(): number {
   return Math.floor(Math.random() * 0x7fffffff);
@@ -9,12 +10,23 @@ function randomSeed(): number {
 
 export default function App() {
   const [spot, setSpot] = useState<Spot | null>(null);
-  const [seed, setSeed] = useState(randomSeed);
+  const [prefs, setPrefs] = useState<StartPrefs>({ group: 'any', icon: 'any' });
+  const [seed, setSeed] = useState(0);
   const [run, setRun] = useState(0);
   const [rotateView, setRotateView] = useState(false);
 
   if (!spot) {
-    return <StartScreen onStart={(s) => setSpot(s)} />;
+    return (
+      <StartScreen
+        prefs={prefs}
+        onPrefsChange={setPrefs}
+        onStart={(s, p) => {
+          setPrefs(p);
+          setSeed(findSeed(s, p, randomSeed));
+          setSpot(s);
+        }}
+      />
+    );
   }
 
   return (
@@ -25,7 +37,7 @@ export default function App() {
       rotateView={rotateView}
       onRotateView={setRotateView}
       onNewSeed={() => {
-        setSeed(randomSeed());
+        setSeed(findSeed(spot, prefs, randomSeed));
         setRun((r) => r + 1);
       }}
       onSameSeed={() => setRun((r) => r + 1)}
