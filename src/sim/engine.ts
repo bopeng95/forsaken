@@ -10,6 +10,10 @@ import {
   CLONE_SPREAD_R,
   CONE_HALF_DEG,
   CONE_LEN,
+  DASH_CHARGES,
+  DASH_DIST,
+  DASH_DURATION,
+  DASH_RECHARGE,
   FP_CAST,
   FP_CAST_DELAY,
   MOVE_SPEED,
@@ -91,6 +95,13 @@ export class SimEngine {
   private sprintUntil = -Infinity;
   private sprintReadyAt = 0;
 
+  private dashCharges = DASH_CHARGES;
+  /** next charge refill time; meaningful only while charges < max */
+  private dashRechargeAt = 0;
+  private dashUntil = -Infinity;
+  private dashDir: Vec2 = { x: 0, y: 0 };
+  private lastMoveDir: Vec2 | null = null;
+
   private timeline: TimelineEvent[];
   private nextEvent = 0;
   private castSegs: CastSeg[] = [];
@@ -162,7 +173,7 @@ export class SimEngine {
     return null;
   }
 
-  update(dt: number, userInput: Vec2, autopilot: boolean, sprint = false): void {
+  update(dt: number, userInput: Vec2, autopilot: boolean, sprint = false, dash = false): void {
     if (this.result) return;
     // clamp dt so a background tab doesn't teleport the sim
     dt = Math.min(dt, 0.1);
@@ -173,13 +184,39 @@ export class SimEngine {
       this.sprintReadyAt = this.t + SPRINT_COOLDOWN;
     }
 
+    if (this.dashCharges < DASH_CHARGES && this.t >= this.dashRechargeAt) {
+      this.dashCharges++;
+      this.dashRechargeAt += DASH_RECHARGE;
+    }
+
+    if (dash && !autopilot && this.dashCharges > 0 && this.t >= this.dashUntil) {
+      const inLen = Math.hypot(userInput.x, userInput.y);
+      const dir =
+        inLen > 1e-6 ? { x: userInput.x / inLen, y: userInput.y / inLen } : this.lastMoveDir;
+      if (dir) {
+        if (this.dashCharges === DASH_CHARGES) this.dashRechargeAt = this.t + DASH_RECHARGE;
+        this.dashCharges--;
+        this.dashDir = dir;
+        this.dashUntil = this.t + DASH_DURATION;
+      }
+    }
+
     // movement
     const step = BOT_SPEED * dt;
     const userSpeed = this.t < this.sprintUntil ? SPRINT_SPEED : MOVE_SPEED;
     for (const s of SPOTS) {
       if (s === this.userSpot && !autopilot) {
+        if (this.t < this.dashUntil) {
+          const k = (DASH_DIST / DASH_DURATION) * dt;
+          this.positions[s] = clampToArena({
+            x: this.positions[s].x + this.dashDir.x * k,
+            y: this.positions[s].y + this.dashDir.y * k,
+          });
+          continue;
+        }
         const len = Math.hypot(userInput.x, userInput.y);
         if (len > 1e-6) {
+          this.lastMoveDir = { x: userInput.x / len, y: userInput.y / len };
           const k = (userSpeed * dt) / Math.max(1, len);
           this.positions[s] = clampToArena({
             x: this.positions[s].x + userInput.x * k,
@@ -211,6 +248,14 @@ export class SimEngine {
     return {
       activeLeft: Math.max(0, this.sprintUntil - this.t),
       cooldownLeft: Math.max(0, this.sprintReadyAt - this.t),
+    };
+  }
+
+  get dash(): { charges: number; rechargeLeft: number } {
+    return {
+      charges: this.dashCharges,
+      rechargeLeft:
+        this.dashCharges < DASH_CHARGES ? Math.max(0, this.dashRechargeAt - this.t) : 0,
     };
   }
 

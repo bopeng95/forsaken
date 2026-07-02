@@ -56,6 +56,12 @@ export const SPRINT_SPEED = MOVE_SPEED * 1.3;
 export const SPRINT_DURATION = 10;
 /** recharge starts at the press, not when the buff ends */
 export const SPRINT_COOLDOWN = 60;
+/** Dash (key 1) modeled on Dancer's En Avant: a 10y burst with charges */
+export const DASH_DIST = 10;
+export const DASH_CHARGES = 3;
+export const DASH_RECHARGE = 30;
+/** rendered as a very fast slide, not a teleport */
+export const DASH_DURATION = 0.25;
 
 // ---- Timings (seconds), matched to the cactbot dancing_mad timeline:
 // towers resolve every ~10s; Future's/Past's End resolves 1.3s BEFORE the even

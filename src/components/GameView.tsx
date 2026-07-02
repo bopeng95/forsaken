@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { attachKeyboard, consumeSprint, inputVec } from '../input/keyboard';
+import { attachKeyboard, consumeDash, consumeSprint, inputVec } from '../input/keyboard';
 import { Legend } from './Legend';
 import { draw } from '../render/draw';
 import { SimEngine } from '../sim/engine';
@@ -17,6 +17,10 @@ interface Ui {
   sprintActive: number;
   /** whole seconds until Shift is available again (0 = ready) */
   sprintCd: number;
+  /** dash charges remaining (max 3) */
+  dashCharges: number;
+  /** whole seconds until the next dash charge (0 = full) */
+  dashCd: number;
   result: Result | null;
 }
 
@@ -84,6 +88,7 @@ export function GameView({
         { x: v.x * rc - v.y * rs, y: v.x * rs + v.y * rc },
         autopilotRef.current,
         consumeSprint(),
+        consumeDash(),
       );
 
       const cssSize = canvas.clientWidth;
@@ -100,6 +105,7 @@ export function GameView({
 
       const cast = engine.castBar;
       const sprint = engine.sprint;
+      const dash = engine.dash;
       const snapshot: Ui = {
         hint: engine.hint,
         castLabel: cast?.label ?? null,
@@ -109,6 +115,8 @@ export function GameView({
         pips: engine.stacksLeft[spot],
         sprintActive: Math.ceil(sprint.activeLeft),
         sprintCd: Math.ceil(sprint.cooldownLeft),
+        dashCharges: dash.charges,
+        dashCd: Math.ceil(dash.rechargeLeft),
         result: engine.result,
       };
       const json = JSON.stringify(snapshot);
@@ -165,6 +173,15 @@ export function GameView({
               : ui.sprintActive > 0
                 ? `Sprinting — ${ui.sprintActive}s (recharge ${ui.sprintCd}s)`
                 : `Sprint recharging — ${ui.sprintCd}s`}
+          </div>
+          <div className="dash-panel">
+            {(() => {
+              const charges = ui?.dashCharges ?? 3;
+              const pips = '●'.repeat(charges) + '○'.repeat(3 - charges);
+              return charges === 3
+                ? `Dash ${pips} — press 1`
+                : `Dash ${pips} — next in ${ui!.dashCd}s`;
+            })()}
           </div>
         </div>
       </div>

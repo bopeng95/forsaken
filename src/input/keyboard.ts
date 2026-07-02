@@ -15,6 +15,7 @@ const KEYS = new Set([
 ]);
 
 let sprintQueued = false;
+let dashQueued = false;
 
 export function attachKeyboard(): void {
   if (attached) return;
@@ -25,6 +26,8 @@ export function attachKeyboard(): void {
       e.preventDefault();
     } else if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !e.repeat) {
       sprintQueued = true;
+    } else if ((e.code === 'Digit1' || e.code === 'Numpad1') && !e.repeat) {
+      dashQueued = true;
     }
   });
   window.addEventListener('keyup', (e) => pressed.delete(e.code));
@@ -35,6 +38,13 @@ export function attachKeyboard(): void {
 export function consumeSprint(): boolean {
   const q = sprintQueued;
   sprintQueued = false;
+  return q;
+}
+
+/** returns true once per press of 1 (queued so a press between frames isn't lost) */
+export function consumeDash(): boolean {
+  const q = dashQueued;
+  dashQueued = false;
   return q;
 }
 
