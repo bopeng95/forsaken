@@ -310,11 +310,13 @@ export class SimEngine {
         const d = this.cleaveDir!;
         if (u.x * d.x + u.y * d.y > 0) {
           const next = ev.set < 8 ? this.plans[ev.set] : null;
+          this.cleaveDir = null; // the fail zone replaces the live telegraph
           this.fail({
             reason: plan.future
               ? 'All Things Ending hit you — FUTURE clones cleave the half in front of them (toward the bait). Cross to the tower side when the baits lock.'
               : "All Things Ending hit you — PAST clones cleave the half BEHIND them, so the bait side was safe. You shouldn't have crossed.",
             ghost: next ? next.duties[this.userSpot].pos : plan.dodgePos!,
+            zone: { kind: 'half', dir: { ...d } },
           });
           return;
         }

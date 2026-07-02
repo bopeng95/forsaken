@@ -59,7 +59,9 @@ export interface StartPrefs {
 
 export type FailZone =
   | { kind: 'cone'; pos: Vec2; dirRad: number }
-  | { kind: 'circle'; pos: Vec2; r: number };
+  | { kind: 'circle'; pos: Vec2; r: number }
+  /** arena half-plane through the center; dir points into the danger half */
+  | { kind: 'half'; dir: Vec2 };
 
 export type FailInfo = {
   reason: string;

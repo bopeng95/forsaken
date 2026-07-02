@@ -158,9 +158,14 @@ export function draw(
     ctx.beginPath();
     if (w.shape === 'circle') ctx.arc(x, y, WAYMARK_LETTER_R * k, 0, Math.PI * 2);
     else {
-      // number marks are squares aligned to the world axes
+      // number marks are squares glued to the ground: the outline rotates
+      // with the camera, only the digit stays screen-upright
       const s = WAYMARK_NUM_HALF * k;
-      ctx.rect(x - s, y - s, s * 2, s * 2);
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(viewRotRad);
+      ctx.rect(-s, -s, s * 2, s * 2);
+      ctx.restore();
     }
     ctx.stroke();
     ctx.fillStyle = w.color;
@@ -299,15 +304,20 @@ export function draw(
 
     // the AoE area that caused the fail, highlighted under the player marks
     if (res.zone) {
-      const [x, y] = P(res.zone.pos);
       ctx.beginPath();
-      if (res.zone.kind === 'cone') {
+      if (res.zone.kind === 'half') {
+        const phi = Math.atan2(res.zone.dir.y, res.zone.dir.x) + viewRotRad;
+        ctx.arc(cx, cy, R_ARENA * k, phi - Math.PI / 2, phi + Math.PI / 2);
+        ctx.closePath();
+      } else if (res.zone.kind === 'cone') {
+        const [x, y] = P(res.zone.pos);
         const half = (CONE_HALF_DEG * Math.PI) / 180;
         const dir = res.zone.dirRad + viewRotRad;
         ctx.moveTo(x, y);
         ctx.arc(x, y, CONE_LEN * k, dir - half, dir + half);
         ctx.closePath();
       } else {
+        const [x, y] = P(res.zone.pos);
         ctx.arc(x, y, res.zone.r * k, 0, Math.PI * 2);
       }
       ctx.fillStyle = 'rgba(255,80,80,0.25)';
