@@ -248,9 +248,24 @@ export function draw(
     }
   }
 
-  // ---- clones
+  // ---- clones (aim lines under the tokens)
   for (const c of eng.clones) {
-    const [x, y] = P(c);
+    const [x, y] = P(c.pos);
+    const [ax, ay] = P(c.aim);
+    const ang = Math.atan2(ay - y, ax - x);
+    ctx.strokeStyle = c.locked ? 'rgba(255,90,90,0.8)' : 'rgba(220,140,255,0.35)';
+    ctx.lineWidth = c.locked ? 2 : 1.5;
+    if (!c.locked) ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(x + Math.cos(ang) * 1.1 * k, y + Math.sin(ang) * 1.1 * k);
+    ctx.lineTo(ax, ay);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  for (const c of eng.clones) {
+    const [x, y] = P(c.pos);
+    const [ax, ay] = P(c.aim);
+    const ang = Math.atan2(ay - y, ax - x);
     ctx.beginPath();
     ctx.arc(x, y, 1.1 * k, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(90,40,120,0.9)';
@@ -258,6 +273,18 @@ export function draw(
     ctx.strokeStyle = 'rgba(220,140,255,0.9)';
     ctx.lineWidth = 2;
     ctx.stroke();
+    // facing chevron on the token edge
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(ang);
+    ctx.beginPath();
+    ctx.moveTo(1.9 * k, 0);
+    ctx.lineTo(1.15 * k, 0.5 * k);
+    ctx.lineTo(1.15 * k, -0.5 * k);
+    ctx.closePath();
+    ctx.fillStyle = c.locked ? 'rgba(255,90,90,0.9)' : 'rgba(220,140,255,0.7)';
+    ctx.fill();
+    ctx.restore();
     ctx.fillStyle = 'rgba(240,200,255,0.95)';
     ctx.font = `700 ${0.9 * k}px system-ui, sans-serif`;
     ctx.fillText('K', x, y + 0.5);

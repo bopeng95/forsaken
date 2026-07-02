@@ -42,6 +42,13 @@ export interface VisualEffect {
   until: number;
 }
 
+export interface Clone {
+  pos: Vec2;
+  /** aim point: tracks the party until All Things Ending locks it */
+  aim: Vec2;
+  locked: boolean;
+}
+
 /** which set the same group soaks next (for icon rerolls); AAABBBBA */
 const NEXT_SOAK: Record<number, number | null> = {
   1: 2,
@@ -70,7 +77,7 @@ export class SimEngine {
   /** towers of the currently telegraphed set (spawn..resolve) */
   activeTowers: { plan: SetPlan; spawnT: number; resolveT: number } | null = null;
   effects: VisualEffect[] = [];
-  clones: Vec2[] = [];
+  clones: Clone[] = [];
   /** unit vector toward the locked bait (danger half), set at lock */
   cleaveDir: Vec2 | null = null;
   baitMarker: Vec2 | null = null;
@@ -168,6 +175,12 @@ export class SimEngine {
       }
     }
 
+    // unlocked clones keep their aim trained on the party
+    if (this.clones.length > 0 && !this.clones[0].locked) {
+      const aim = this.partyCenter();
+      for (const c of this.clones) c.aim = aim;
+    }
+
     // timeline
     while (this.nextEvent < this.timeline.length && this.timeline[this.nextEvent].t <= this.t) {
       const ev = this.timeline[this.nextEvent++];
@@ -180,6 +193,16 @@ export class SimEngine {
 
   private fail(info: { reason: string; ghost?: Vec2 }): void {
     this.result = { kind: 'fail', ...info };
+  }
+
+  private partyCenter(): Vec2 {
+    let x = 0;
+    let y = 0;
+    for (const s of SPOTS) {
+      x += this.positions[s].x;
+      y += this.positions[s].y;
+    }
+    return { x: x / SPOTS.length, y: y / SPOTS.length };
   }
 
   private handle(ev: TimelineEvent): void {
@@ -217,7 +240,12 @@ export class SimEngine {
       }
       case 'snapshot': {
         if (!this.checkSnapshot(plan)) return;
-        this.clones = plan.expectedClosest4!.map((s) => ({ ...this.positions[s] }));
+        const aim = this.partyCenter();
+        this.clones = plan.expectedClosest4!.map((s) => ({
+          pos: { ...this.positions[s] },
+          aim,
+          locked: false,
+        }));
         this.baitMarker = plan.baitPos!;
         for (const s of SPOTS) this.targets[s] = plan.baitPos!;
         this.hint = plan.future
@@ -234,8 +262,19 @@ export class SimEngine {
           });
           return;
         }
+        // Aims freeze on the party as All Things Ending begins.
+        const lockedAim = this.partyCenter();
+        for (const c of this.clones) {
+          c.aim = lockedAim;
+          c.locked = true;
+        }
         // Clones cleave the half at relative-north of the bait frame: toward
         // the bait for Future (they cleave in front), away for Past (behind).
+        // The boundary must be a center diameter, not per-clone half-planes:
+        // KR parks boss-hugging helpers at 5.4y while an old clone spawn can
+        // sit at 8.4y on the same azimuth (180° tower flip), and a baiter
+        // clone at relative ±45° would tilt a bait-aimed boundary onto the
+        // r-131° helpers — the strat's own spots only clear through-center.
         this.cleaveDir = lp(plan.baitFrameSouth!, 0, 1);
         this.baitMarker = null;
         const next = ev.set < 8 ? this.plans[ev.set] : null;
