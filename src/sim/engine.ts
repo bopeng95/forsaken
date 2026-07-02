@@ -1,0 +1,447 @@
+import { SETUP_POS, buildSetPlan, lp, type SetPlan } from './assignments';
+import { clampToArena, dist, stepToward } from './bots';
+import {
+  ATE_CAST,
+  BAIT_TOL,
+  BAIT_WINDOW,
+  BOT_SPEED,
+  CLEAVE_TO_SOAK,
+  CONE_HALF_DEG,
+  CONE_LEN,
+  FP_CAST,
+  FP_CAST_DELAY,
+  MOVE_SPEED,
+  R_TOWER,
+  SETUP_T,
+  SNAPSHOT_DELAY,
+  SPREAD_R,
+  STACK_R,
+  TELEGRAPH_T,
+} from './constants';
+import type { AttemptScript, Icon, Result, Spot, Vec2 } from './types';
+import { SPOTS } from './types';
+
+type EventKind = 'spawn' | 'resolve' | 'snapshot' | 'lock' | 'cleave' | 'clear';
+
+interface TimelineEvent {
+  t: number;
+  kind: EventKind;
+  set: number;
+}
+
+interface CastSeg {
+  t0: number;
+  t1: number;
+  label: string;
+}
+
+export interface VisualEffect {
+  kind: 'cone' | 'spread' | 'stack';
+  pos: Vec2;
+  dirRad?: number;
+  until: number;
+}
+
+/** which set the same group soaks next (for icon rerolls); AAABBBBA */
+const NEXT_SOAK: Record<number, number | null> = {
+  1: 2,
+  2: 3,
+  3: 8,
+  4: 5,
+  5: 6,
+  6: 7,
+  7: null,
+  8: null,
+};
+
+export class SimEngine {
+  readonly script: AttemptScript;
+  readonly userSpot: Spot;
+  readonly plans: SetPlan[];
+
+  t = 0;
+  positions: Record<Spot, Vec2>;
+  icons: Record<Spot, Icon | null>;
+  stacksLeft: Record<Spot, number>;
+  targets: Record<Spot, Vec2>;
+  hint: string;
+  result: Result | null = null;
+
+  /** towers of the currently telegraphed set (spawn..resolve) */
+  activeTowers: { plan: SetPlan; spawnT: number; resolveT: number } | null = null;
+  effects: VisualEffect[] = [];
+  clones: Vec2[] = [];
+  /** unit vector toward the locked bait (danger half), set at lock */
+  cleaveDir: Vec2 | null = null;
+  baitMarker: Vec2 | null = null;
+  /** last set that spawned (for HUD progress) */
+  currentSet = 0;
+
+  private timeline: TimelineEvent[];
+  private nextEvent = 0;
+  private castSegs: CastSeg[] = [];
+
+  constructor(script: AttemptScript, userSpot: Spot) {
+    this.script = script;
+    this.userSpot = userSpot;
+    this.plans = Array.from({ length: 8 }, (_, i) => buildSetPlan(script, i + 1));
+
+    this.positions = { ...SETUP_POS };
+    this.targets = { ...SETUP_POS };
+    this.stacksLeft = Object.fromEntries(SPOTS.map((s) => [s, 4])) as Record<Spot, number>;
+    this.icons = Object.fromEntries(SPOTS.map((s) => [s, null])) as Record<Spot, Icon | null>;
+    // Group A holds its set-1 icons, Group B holds its (remembered) set-4 icons.
+    for (const [s, icon] of Object.entries(script.soakIcons[0])) this.icons[s as Spot] = icon!;
+    for (const [s, icon] of Object.entries(script.soakIcons[3])) this.icons[s as Spot] = icon!;
+
+    const group = script.groupOf[userSpot];
+    this.hint = `You are ${userSpot} — Group ${group} (soaks towers ${
+      group === 'A' ? '1, 2, 3 and 8' : '4, 5, 6 and 7'
+    }). Read your icon!`;
+
+    // Timeline, matching the cactbot log cadence: towers resolve every 10s.
+    // Even towers spawn as the preceding odd set resolves; odd towers 3/5/7
+    // spawn at the clone snapshot, so the whole bait/lock/cleave sequence runs
+    // during their telegraph and the cleave lands CLEAVE_TO_SOAK before the
+    // soak (1.0 + 4.7 + 5.0 + 0.3 = 10, asserted in constants.ts).
+    // Events are processed in push order, which breaks equal-t ties:
+    // resolve(odd) before spawn(even), snapshot before spawn(next odd).
+    this.timeline = [];
+    this.timeline.push({ t: SETUP_T, kind: 'spawn', set: 1 });
+    let oddResolve = SETUP_T + TELEGRAPH_T;
+    this.timeline.push({ t: oddResolve, kind: 'resolve', set: 1 });
+    for (let set = 2; set <= 8; set += 2) {
+      const resolve = oddResolve + TELEGRAPH_T; // spawns at oddResolve
+      const snapshot = resolve + SNAPSHOT_DELAY;
+      const lock = snapshot + BAIT_WINDOW;
+      const cleave = lock + ATE_CAST;
+      this.timeline.push({ t: oddResolve, kind: 'spawn', set });
+      this.timeline.push({ t: resolve, kind: 'resolve', set });
+      this.timeline.push({ t: snapshot, kind: 'snapshot', set });
+      if (set < 8) this.timeline.push({ t: snapshot, kind: 'spawn', set: set + 1 });
+      this.timeline.push({ t: lock, kind: 'lock', set });
+      this.timeline.push({ t: cleave, kind: 'cleave', set });
+      this.castSegs.push({
+        t0: oddResolve + FP_CAST_DELAY,
+        t1: oddResolve + FP_CAST_DELAY + FP_CAST,
+        label: this.script.future[set / 2 - 1] ? "Future's End" : "Past's End",
+      });
+      this.castSegs.push({ t0: lock, t1: cleave, label: 'All Things Ending' });
+      if (set < 8) {
+        oddResolve = cleave + CLEAVE_TO_SOAK; // = snapshot + TELEGRAPH_T
+        this.timeline.push({ t: oddResolve, kind: 'resolve', set: set + 1 });
+      } else {
+        this.timeline.push({ t: cleave + 1.5, kind: 'clear', set: 8 });
+      }
+    }
+  }
+
+  get castBar(): { label: string; frac: number } | null {
+    for (const c of this.castSegs) {
+      if (this.t >= c.t0 && this.t < c.t1) {
+        return { label: c.label, frac: (this.t - c.t0) / (c.t1 - c.t0) };
+      }
+    }
+    return null;
+  }
+
+  update(dt: number, userInput: Vec2, autopilot: boolean): void {
+    if (this.result) return;
+    // clamp dt so a background tab doesn't teleport the sim
+    dt = Math.min(dt, 0.1);
+    this.t += dt;
+
+    // movement
+    const step = BOT_SPEED * dt;
+    for (const s of SPOTS) {
+      if (s === this.userSpot && !autopilot) {
+        const len = Math.hypot(userInput.x, userInput.y);
+        if (len > 1e-6) {
+          const k = (MOVE_SPEED * dt) / Math.max(1, len);
+          this.positions[s] = clampToArena({
+            x: this.positions[s].x + userInput.x * k,
+            y: this.positions[s].y + userInput.y * k,
+          });
+        }
+      } else {
+        this.positions[s] = stepToward(this.positions[s], this.targets[s], step);
+      }
+    }
+
+    // timeline
+    while (this.nextEvent < this.timeline.length && this.timeline[this.nextEvent].t <= this.t) {
+      const ev = this.timeline[this.nextEvent++];
+      this.handle(ev);
+      if (this.result) return;
+    }
+
+    this.effects = this.effects.filter((e) => e.until > this.t);
+  }
+
+  private fail(info: { reason: string; ghost?: Vec2 }): void {
+    this.result = { kind: 'fail', ...info };
+  }
+
+  private handle(ev: TimelineEvent): void {
+    const plan = this.plans[ev.set - 1];
+    switch (ev.kind) {
+      case 'spawn': {
+        this.currentSet = ev.set;
+        this.activeTowers = { plan, spawnT: ev.t, resolveT: ev.t + TELEGRAPH_T };
+        // Odd sets 3/5/7 spawn mid-bait (at the snapshot) — leave everyone on
+        // the bait; they get their duty targets at the cleave lock.
+        if (ev.set !== 1 && ev.set % 2 === 1) break;
+        for (const s of SPOTS) this.targets[s] = plan.duties[s].pos;
+        let hint = `Set ${ev.set} — ${plan.duties[this.userSpot].label}`;
+        if (ev.set % 2 === 0) {
+          // even towers spawn as the odd set resolves — surface the reroll
+          const prevOdd = this.plans[ev.set - 2];
+          const soaked =
+            prevOdd.towerMembers.left.includes(this.userSpot) ||
+            prevOdd.towerMembers.right.includes(this.userSpot);
+          if (soaked) {
+            const mine = this.icons[this.userSpot];
+            hint = `New icon: ${mine?.toUpperCase()}${ev.set === 4 ? ' — REMEMBER IT for set 8!' : ''}. ${hint}`;
+          }
+        }
+        this.hint = hint;
+        break;
+      }
+      case 'resolve': {
+        this.resolveTowers(plan);
+        this.activeTowers = null;
+        if (this.result) return;
+        // odd resolve: the even spawn at the same instant sets the next hint
+        if (plan.parity === 'even') this.hint = 'Clones incoming — get ready to stack!';
+        break;
+      }
+      case 'snapshot': {
+        if (!this.checkSnapshot(plan)) return;
+        this.clones = plan.expectedClosest4!.map((s) => ({ ...this.positions[s] }));
+        this.baitMarker = plan.baitPos!;
+        for (const s of SPOTS) this.targets[s] = plan.baitPos!;
+        this.hint = plan.future
+          ? "FUTURE'S END — everyone stack max melee OPPOSITE the new towers"
+          : "PAST'S END — everyone stack max melee BETWEEN the new towers";
+        break;
+      }
+      case 'lock': {
+        const u = this.positions[this.userSpot];
+        if (dist(u, plan.baitPos!) > BAIT_TOL) {
+          this.fail({
+            reason: `You weren't stacked with the party for the ${plan.future ? 'FUTURE' : 'PAST'} bait — clones aim at the group.`,
+            ghost: plan.baitPos!,
+          });
+          return;
+        }
+        // Clones cleave the half at relative-north of the bait frame: toward
+        // the bait for Future (they cleave in front), away for Past (behind).
+        this.cleaveDir = lp(plan.baitFrameSouth!, 0, 1);
+        this.baitMarker = null;
+        const next = ev.set < 8 ? this.plans[ev.set] : null;
+        for (const s of SPOTS) this.targets[s] = next ? next.duties[s].pos : plan.dodgePos!;
+        this.hint = plan.future
+          ? 'ALL THINGS ENDING — the cleave chases the bait: CROSS to the tower side!'
+          : "ALL THINGS ENDING — the cleave hits the far half: you're safe, head to your tower job.";
+        break;
+      }
+      case 'cleave': {
+        const u = this.positions[this.userSpot];
+        const d = this.cleaveDir!;
+        if (u.x * d.x + u.y * d.y > 0) {
+          const next = ev.set < 8 ? this.plans[ev.set] : null;
+          this.fail({
+            reason: plan.future
+              ? 'All Things Ending hit you — FUTURE clones cleave the half in front of them (toward the bait). Cross to the tower side when the baits lock.'
+              : "All Things Ending hit you — PAST clones cleave the half BEHIND them, so the bait side was safe. You shouldn't have crossed.",
+            ghost: next ? next.duties[this.userSpot].pos : plan.dodgePos!,
+          });
+          return;
+        }
+        this.clones = [];
+        this.cleaveDir = null;
+        if (ev.set < 8) this.hint = 'Cleave dodged — the towers resolve NOW!';
+        break;
+      }
+      case 'clear': {
+        this.result = { kind: 'clear' };
+        this.hint = 'Forsaken resolved — GG!';
+        break;
+      }
+    }
+  }
+
+  // ---- resolution checks ------------------------------------------------
+
+  private resolveTowers(plan: SetPlan): void {
+    const user = this.userSpot;
+    const inTower = (center: Vec2): Spot[] =>
+      SPOTS.filter((s) => dist(this.positions[s], center) <= R_TOWER);
+
+    // 1) tower membership
+    for (const side of ['left', 'right'] as const) {
+      const expected = plan.towerMembers[side];
+      const actual = inTower(plan.towerCenters[side]);
+      const same =
+        actual.length === expected.length && expected.every((s) => actual.includes(s));
+      if (same) continue;
+
+      const sideName = side.toUpperCase();
+      if (expected.includes(user) && !actual.includes(user)) {
+        this.fail({
+          reason: `You missed your tower — you were assigned the ${sideName} tower (set ${plan.setIdx}).`,
+          ghost: plan.duties[user].pos,
+        });
+      } else if (actual.includes(user) && !expected.includes(user)) {
+        this.fail({
+          reason: `You soaked the ${sideName} tower, but it belonged to ${expected.join(' + ')}.`,
+          ghost: plan.duties[user].pos,
+        });
+      } else {
+        this.fail({
+          reason: `The ${sideName} tower resolved with ${actual.length} player(s) — towers need exactly 2.`,
+        });
+      }
+      return;
+    }
+
+    // 2) trigger icons of all soakers simultaneously (positions at this instant)
+    const soakers = [...plan.towerMembers.left, ...plan.towerMembers.right];
+
+    // cones first: each fires at the nearest player
+    for (const c of soakers) {
+      if (this.icons[c] !== 'cone') continue;
+      const src = this.positions[c];
+      let nearest: Spot | null = null;
+      let best = Infinity;
+      for (const s of SPOTS) {
+        if (s === c) continue;
+        const d = dist(src, this.positions[s]);
+        if (d < best) {
+          best = d;
+          nearest = s;
+        }
+      }
+      const dirRad = Math.atan2(this.positions[nearest!].y - src.y, this.positions[nearest!].x - src.x);
+      const half = (CONE_HALF_DEG * Math.PI) / 180;
+      const hits = SPOTS.filter((s) => {
+        if (s === c) return false;
+        const p = this.positions[s];
+        const d = dist(src, p);
+        if (d > CONE_LEN) return false;
+        const a = Math.atan2(p.y - src.y, p.x - src.x);
+        let diff = Math.abs(a - dirRad);
+        if (diff > Math.PI) diff = 2 * Math.PI - diff;
+        return diff <= half;
+      });
+      this.effects.push({ kind: 'cone', pos: { ...src }, dirRad, until: this.t + 1.2 });
+
+      const baiter = plan.coneBaiter[c]!;
+      const ok = hits.length === 1 && hits[0] === baiter;
+      if (ok) continue;
+      if (user === baiter && nearest !== user) {
+        this.fail({
+          reason: `You failed to bait ${c}'s cone — ${nearest} was closer than you.`,
+          ghost: plan.duties[user].pos,
+        });
+      } else if (hits.includes(user) && user !== baiter) {
+        this.fail({
+          reason: `You were clipped by ${c}'s cone (it fires at the nearest player and hits everyone in the wedge).`,
+          ghost: plan.duties[user].pos,
+        });
+      } else if (user === c) {
+        this.fail({
+          reason: `Your cone hit ${hits.join(', ') || 'nobody'} — it must hit only ${baiter}. Position so ${baiter} is nearest.`,
+          ghost: plan.duties[user].pos,
+        });
+      } else {
+        this.fail({ reason: `${c}'s cone hit ${hits.length} players (${hits.join(', ')}) — it must hit only ${baiter}.` });
+      }
+      return;
+    }
+
+    // spreads: nobody else within radius
+    for (const sp of soakers) {
+      if (this.icons[sp] !== 'spread') continue;
+      const src = this.positions[sp];
+      this.effects.push({ kind: 'spread', pos: { ...src }, until: this.t + 1.2 });
+      const clipped = SPOTS.filter((s) => s !== sp && dist(this.positions[s], src) <= SPREAD_R);
+      if (clipped.length === 0) continue;
+      if (sp === user) {
+        this.fail({
+          reason: `Your SPREAD clipped ${clipped.join(', ')} — keep it isolated south of the tower.`,
+          ghost: plan.duties[user].pos,
+        });
+      } else if (clipped.includes(user)) {
+        this.fail({
+          reason: `You stood in ${sp}'s spread AoE.`,
+          ghost: plan.duties[user].pos,
+        });
+      } else {
+        this.fail({ reason: `${sp}'s spread clipped ${clipped.join(', ')}.` });
+      }
+      return;
+    }
+
+    // stacks: exactly 3 players inside
+    for (const h of soakers) {
+      if (this.icons[h] !== 'stack') continue;
+      const src = this.positions[h];
+      this.effects.push({ kind: 'stack', pos: { ...src }, until: this.t + 1.2 });
+      const members = SPOTS.filter((s) => dist(this.positions[s], src) <= STACK_R);
+      if (members.length === 3) continue;
+      const expected = plan.stackMembers[h] ?? [];
+      if (members.length < 3 && expected.includes(user) && !members.includes(user)) {
+        this.fail({
+          reason: `${h}'s stack only had ${members.length} — you were supposed to share it.`,
+          ghost: plan.duties[user].pos,
+        });
+      } else if (members.length > 3 && members.includes(user) && !expected.includes(user)) {
+        this.fail({
+          reason: `${h}'s stack had ${members.length} players — you didn't belong in it.`,
+          ghost: plan.duties[user].pos,
+        });
+      } else {
+        this.fail({
+          reason: `${h}'s stack resolved with ${members.length} players — it needs exactly 3.`,
+          ghost: expected.includes(user) ? plan.duties[user].pos : undefined,
+        });
+      }
+      return;
+    }
+
+    // 3) consume a debuff stack + reroll
+    const next = NEXT_SOAK[plan.setIdx];
+    const nextIcons = next ? this.script.soakIcons[next - 1] : null;
+    for (const s of soakers) {
+      this.stacksLeft[s] = Math.max(0, this.stacksLeft[s] - 1);
+      this.icons[s] = nextIcons ? nextIcons[s]! : null;
+    }
+  }
+
+  private checkSnapshot(plan: SetPlan): boolean {
+    const user = this.userSpot;
+    const sorted = SPOTS.slice().sort(
+      (a, b) => Math.hypot(this.positions[a].x, this.positions[a].y) - Math.hypot(this.positions[b].x, this.positions[b].y),
+    );
+    const actual = sorted.slice(0, 4);
+    const expected = plan.expectedClosest4!;
+    const same = expected.every((s) => actual.includes(s));
+    if (same) return true;
+
+    if (actual.includes(user) && !expected.includes(user)) {
+      this.fail({
+        reason: 'A Kefka clone spawned on you — you were among the 4 players closest to the boss.',
+        ghost: plan.duties[user].pos,
+      });
+    } else if (expected.includes(user) && !actual.includes(user)) {
+      this.fail({
+        reason: 'You were assigned a clone bait but were not among the 4 closest to the boss.',
+        ghost: plan.duties[user].pos,
+      });
+    } else {
+      this.fail({ reason: `Clones spawned on the wrong players (${actual.join(', ')}).` });
+    }
+    return false;
+  }
+}
