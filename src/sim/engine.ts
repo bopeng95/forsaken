@@ -2,10 +2,12 @@ import { SETUP_POS, buildSetPlan, lp, type SetPlan } from './assignments';
 import { clampToArena, dist, stepToward } from './bots';
 import {
   ATE_CAST,
+  BAIT_DELAY,
   BAIT_TOL,
   BAIT_WINDOW,
   BOT_SPEED,
   CLEAVE_TO_SOAK,
+  CLONE_SPREAD_R,
   CONE_HALF_DEG,
   CONE_LEN,
   FP_CAST,
@@ -13,7 +15,6 @@ import {
   MOVE_SPEED,
   R_TOWER,
   SETUP_T,
-  SNAPSHOT_DELAY,
   SPREAD_R,
   SPRINT_COOLDOWN,
   SPRINT_DURATION,
@@ -24,7 +25,7 @@ import {
 import type { AttemptScript, FailInfo, FailZone, Icon, Result, Spot, Vec2 } from './types';
 import { SPOTS } from './types';
 
-type EventKind = 'spawn' | 'resolve' | 'snapshot' | 'lock' | 'cleave' | 'clear';
+type EventKind = 'spawn' | 'resolve' | 'snapshot' | 'bait' | 'lock' | 'cleave' | 'clear';
 
 interface TimelineEvent {
   t: number;
@@ -113,35 +114,38 @@ export class SimEngine {
     }). Read your icon!`;
 
     // Timeline, matching the cactbot log cadence: towers resolve every 10s.
-    // Even towers spawn as the preceding odd set resolves; odd towers 3/5/7
-    // spawn at the clone snapshot, so the whole bait/lock/cleave sequence runs
-    // during their telegraph and the cleave lands CLEAVE_TO_SOAK before the
-    // soak (1.0 + 4.7 + 5.0 + 0.3 = 10, asserted in constants.ts).
+    // Even towers spawn as the preceding odd set resolves; Future's/Past's End
+    // resolves 1.3s BEFORE the even soak (clone snapshot + explosion); odd
+    // towers 3/5/7 spawn at the bait call, so the whole bait/lock/cleave
+    // sequence runs during their telegraph and the cleave lands CLEAVE_TO_SOAK
+    // before the soak (1.0 + 4.7 + 5.0 + 0.3 = 10, asserted in constants.ts).
     // Events are processed in push order, which breaks equal-t ties:
-    // resolve(odd) before spawn(even), snapshot before spawn(next odd).
+    // resolve(odd) before spawn(even), bait before spawn(next odd).
     this.timeline = [];
     this.timeline.push({ t: SETUP_T, kind: 'spawn', set: 1 });
     let oddResolve = SETUP_T + TELEGRAPH_T;
     this.timeline.push({ t: oddResolve, kind: 'resolve', set: 1 });
     for (let set = 2; set <= 8; set += 2) {
       const resolve = oddResolve + TELEGRAPH_T; // spawns at oddResolve
-      const snapshot = resolve + SNAPSHOT_DELAY;
-      const lock = snapshot + BAIT_WINDOW;
+      const snapshot = oddResolve + FP_CAST_DELAY + FP_CAST; // F/P cast end
+      const bait = resolve + BAIT_DELAY;
+      const lock = bait + BAIT_WINDOW;
       const cleave = lock + ATE_CAST;
       this.timeline.push({ t: oddResolve, kind: 'spawn', set });
-      this.timeline.push({ t: resolve, kind: 'resolve', set });
       this.timeline.push({ t: snapshot, kind: 'snapshot', set });
-      if (set < 8) this.timeline.push({ t: snapshot, kind: 'spawn', set: set + 1 });
+      this.timeline.push({ t: resolve, kind: 'resolve', set });
+      this.timeline.push({ t: bait, kind: 'bait', set });
+      if (set < 8) this.timeline.push({ t: bait, kind: 'spawn', set: set + 1 });
       this.timeline.push({ t: lock, kind: 'lock', set });
       this.timeline.push({ t: cleave, kind: 'cleave', set });
       this.castSegs.push({
         t0: oddResolve + FP_CAST_DELAY,
-        t1: oddResolve + FP_CAST_DELAY + FP_CAST,
+        t1: snapshot,
         label: this.script.future[set / 2 - 1] ? "Future's End" : "Past's End",
       });
       this.castSegs.push({ t0: lock, t1: cleave, label: 'All Things Ending' });
       if (set < 8) {
-        oddResolve = cleave + CLEAVE_TO_SOAK; // = snapshot + TELEGRAPH_T
+        oddResolve = cleave + CLEAVE_TO_SOAK; // = bait + TELEGRAPH_T
         this.timeline.push({ t: oddResolve, kind: 'resolve', set: set + 1 });
       } else {
         this.timeline.push({ t: cleave + 1.5, kind: 'clear', set: 8 });
@@ -230,7 +234,7 @@ export class SimEngine {
       case 'spawn': {
         this.currentSet = ev.set;
         this.activeTowers = { plan, spawnT: ev.t, resolveT: ev.t + TELEGRAPH_T };
-        // Odd sets 3/5/7 spawn mid-bait (at the snapshot) — leave everyone on
+        // Odd sets 3/5/7 spawn mid-bait (at the bait call) — leave everyone on
         // the bait; they get their duty targets at the cleave lock.
         if (ev.set !== 1 && ev.set % 2 === 1) break;
         for (const s of SPOTS) this.targets[s] = plan.duties[s].pos;
@@ -255,10 +259,12 @@ export class SimEngine {
         if (this.result) return;
         this.activeTowers = null;
         // odd resolve: the even spawn at the same instant sets the next hint
-        if (plan.parity === 'even') this.hint = 'Clones incoming — get ready to stack!';
+        if (plan.parity === 'even') this.hint = 'Towers soaked — get ready to stack!';
         break;
       }
       case 'snapshot': {
+        // Future's/Past's End resolves: clones spawn on the 4 closest players
+        // and explode point-blank, 1.3s before the even towers are soaked.
         if (!this.checkSnapshot(plan)) return;
         const aim = this.partyCenter();
         this.clones = plan.expectedClosest4!.map((s) => ({
@@ -266,6 +272,10 @@ export class SimEngine {
           aim,
           locked: false,
         }));
+        this.resolveCloneExplosions(plan);
+        break;
+      }
+      case 'bait': {
         this.baitMarker = plan.baitPos!;
         for (const s of SPOTS) this.targets[s] = plan.baitPos!;
         this.hint = plan.future
@@ -551,5 +561,42 @@ export class SimEngine {
       this.fail({ reason: `Clones spawned on the wrong players (${actual.join(', ')}).`, zone });
     }
     return false;
+  }
+
+  /** Each clone detonates point-blank on its baiter as it spawns (BAD6–BAD9). */
+  private resolveCloneExplosions(plan: SetPlan): void {
+    const user = this.userSpot;
+    const label = plan.future ? "Future's End" : "Past's End";
+    for (const b of plan.expectedClosest4!) {
+      const src = this.positions[b];
+      this.effects.push({ kind: 'spread', pos: { ...src }, until: this.t + 1.2 });
+      const clipped = SPOTS.filter(
+        (s) => s !== b && dist(this.positions[s], src) <= CLONE_SPREAD_R,
+      );
+      if (clipped.length === 0) continue;
+      const zone: FailZone = { kind: 'circle', pos: { ...src }, r: CLONE_SPREAD_R };
+      if (b === user) {
+        this.fail({
+          reason: `The clone that spawned on you exploded onto ${clipped.join(', ')} — keep your bait spot isolated.`,
+          ghost: plan.duties[user].pos,
+          hit: clipped,
+          zone,
+        });
+      } else if (clipped.includes(user)) {
+        this.fail({
+          reason: `You were caught in the clone explosion on ${b} — ${label} detonates on the 4 baiters.`,
+          ghost: plan.duties[user].pos,
+          hit: clipped,
+          zone,
+        });
+      } else {
+        this.fail({
+          reason: `${b}'s clone explosion clipped ${clipped.join(', ')}.`,
+          hit: clipped,
+          zone,
+        });
+      }
+      return;
+    }
   }
 }
