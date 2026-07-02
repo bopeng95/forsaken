@@ -48,6 +48,15 @@ export interface AttemptScript {
   future: boolean[];
 }
 
+/** Start-screen constraints on new pattern rolls ('any' = unconstrained). */
+export type GroupPref = Group | 'any';
+export type IconPref = Icon | 'any';
+
+export interface StartPrefs {
+  group: GroupPref;
+  icon: IconPref;
+}
+
 export type FailInfo = {
   reason: string;
   /** where the user should have been, if applicable */
