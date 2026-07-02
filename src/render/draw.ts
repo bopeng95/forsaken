@@ -429,16 +429,28 @@ function drawPlayer(
     ctx.fillStyle = '#e0a052';
     ctx.fill();
   } else if (icon === 'stack') {
+    ctx.save();
     ctx.strokeStyle = '#6ee08c';
     ctx.lineWidth = 3;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
     for (let i = 0; i < 3; i++) {
-      const yy = iy - 0.45 * k + i * 0.45 * k;
+      const a = -Math.PI / 2 + (i * 2 * Math.PI) / 3;
+      const dx = Math.cos(a);
+      const dy = Math.sin(a);
+      // chevron pointing at the icon center: apex leaves the middle empty,
+      // wings reach back outward
+      const ax = x + dx * 0.18 * k;
+      const ay = iy + dy * 0.18 * k;
+      const bx = ax + dx * 0.34 * k;
+      const by = ay + dy * 0.34 * k;
       ctx.beginPath();
-      ctx.moveTo(x - 0.55 * k, yy + 0.3 * k);
-      ctx.lineTo(x, yy);
-      ctx.lineTo(x + 0.55 * k, yy + 0.3 * k);
+      ctx.moveTo(bx - dy * 0.26 * k, by + dx * 0.26 * k);
+      ctx.lineTo(ax, ay);
+      ctx.lineTo(bx + dy * 0.26 * k, by - dx * 0.26 * k);
       ctx.stroke();
     }
+    ctx.restore();
   }
 
   // Spell's Trouble pips — user only, below the token
