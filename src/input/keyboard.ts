@@ -14,6 +14,8 @@ const KEYS = new Set([
   'KeyD',
 ]);
 
+let sprintQueued = false;
+
 export function attachKeyboard(): void {
   if (attached) return;
   attached = true;
@@ -21,10 +23,19 @@ export function attachKeyboard(): void {
     if (KEYS.has(e.code)) {
       pressed.add(e.code);
       e.preventDefault();
+    } else if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !e.repeat) {
+      sprintQueued = true;
     }
   });
   window.addEventListener('keyup', (e) => pressed.delete(e.code));
   window.addEventListener('blur', () => pressed.clear());
+}
+
+/** returns true once per Shift press (queued so a press between frames isn't lost) */
+export function consumeSprint(): boolean {
+  const q = sprintQueued;
+  sprintQueued = false;
+  return q;
 }
 
 export function inputVec(): Vec2 {

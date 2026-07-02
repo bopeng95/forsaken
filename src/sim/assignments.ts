@@ -3,7 +3,8 @@ import {
   R_OUTER_RING,
   TOWER_DIST,
   TOWER_HALFSEP,
-  WAYMARK_HALF,
+  WAYMARK_LETTER_R,
+  WAYMARK_NUM_HALF,
   WAYMARK_NUM_R,
   WAYMARK_R,
   prioIndex,
@@ -59,15 +60,15 @@ export interface SetPlan {
 // by construction otherwise.
 const ODD = {
   L_STACK: [225, R_OUTER_RING] as const, // stack on the boss hitbox ring, inside left tower
-  L_CONE: [227, 12.9] as const, // in the tower, ~4.5y outside the stack holder (still in stack)
+  L_CONE: [227, 13.7] as const, // in the tower, ~5.3y outside the stack holder (still in the 6y stack)
   // boss-side sliver: in stack radius but OUTSIDE the tower circle (11.2 - 5.4 = 5.8 > 5.5)
   L_HELP_T: [225, 5.4] as const,
   // idle healer: straight out behind the tower — outside the tower circle (5.9y
-  // from its center) yet nearer to L_CONE (4.2y) than the stack holder (4.5y),
+  // from its center) yet nearer to L_CONE (3.4y) than the stack holder (5.3y),
   // so the cone fires outward at the healer
   L_BAIT_H: [227, 17.1] as const,
   R_STACK: [135, 8.2] as const, // front of right tower, toward "new north"
-  R_SPREAD: [141, 15.5] as const, // south side, in tower, >5.5y out of the stack
+  R_SPREAD: [141, 15.5] as const, // south side, in tower, >6y out of the stack (7.4y)
   R_HELP_M: [131, 5.4] as const, // idle melee: boss-side sliver, in right stack
   R_HELP_R: [139, 5.4] as const, // idle ranged: boss-side sliver, in right stack
 };
@@ -88,11 +89,12 @@ const EVEN = {
  * NUMBER mark there — stand at its back corner.
  */
 function coneBaitMark(southDeg: number, side: 'left' | 'right'): readonly [number, number] {
-  // number-mark corner = 0.8 * half-size * sqrt2 (the diamond is drawn at 0.8 scale, rotated 45°)
+  // number marks are world-axis-aligned squares centered on the intercards, so
+  // their near/far corners lie on the intercard azimuth at half-side * sqrt2
   const r =
     southDeg % 90 === 0
-      ? WAYMARK_R - WAYMARK_HALF
-      : WAYMARK_NUM_R + 0.8 * WAYMARK_HALF * Math.SQRT2;
+      ? WAYMARK_R - WAYMARK_LETTER_R
+      : WAYMARK_NUM_R + WAYMARK_NUM_HALF * Math.SQRT2;
   return [side === 'left' ? 270 : 90, r];
 }
 

@@ -26,10 +26,16 @@ export function Legend() {
         <circle cx="14" cy="14" r="2.5" fill="#e0a052" />
       </Item>
       <Item name="Stack" desc="3-player shared stack centered on you.">
-        <g fill="none" stroke="#6ee08c" strokeWidth="2.8">
-          <path d="M6 11.5 L14 7 L22 11.5" />
-          <path d="M6 17 L14 12.5 L22 17" />
-          <path d="M6 22.5 L14 18 L22 22.5" />
+        <g
+          fill="none"
+          stroke="#6ee08c"
+          strokeWidth="2.8"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        >
+          <path d="M10.2 6.5 L14 11.4 L17.8 6.5" />
+          <path d="M22.4 14.5 L16.3 15.3 L18.6 21" />
+          <path d="M5.6 14.5 L11.7 15.3 L9.4 21" />
         </g>
       </Item>
       <Item name="Charges" desc="Spell's Trouble left — soaking a tower spends one and rerolls your icon.">
@@ -54,7 +60,10 @@ export function Legend() {
         <circle cx="11.5" cy="18" r="1.4" fill="rgba(255,250,220,0.9)" />
         <circle cx="16.5" cy="18" r="1.4" fill="rgba(255,250,220,0.9)" />
       </Item>
-      <Item name="Clone" desc="Kefka clone — half-arena cleave aimed at the locked bait.">
+      <Item
+        name="Clone"
+        desc="Kefka clone — its aim line tracks the party, locks red at All Things Ending, then it cleaves that half of the arena."
+      >
         <circle
           cx="14"
           cy="14"

@@ -48,10 +48,31 @@ export interface AttemptScript {
   future: boolean[];
 }
 
+/** Start-screen constraints on new pattern rolls ('any' = unconstrained). */
+export type GroupPref = Group | 'any';
+export type IconPref = Icon | 'any';
+
+export interface StartPrefs {
+  group: GroupPref;
+  icon: IconPref;
+}
+
+export type FailZone =
+  | { kind: 'cone'; pos: Vec2; dirRad: number }
+  | { kind: 'circle'; pos: Vec2; r: number }
+  /** arena half-plane through the center; dir points into the danger half */
+  | { kind: 'half'; dir: Vec2 };
+
 export type FailInfo = {
   reason: string;
   /** where the user should have been, if applicable */
   ghost?: Vec2;
+  /** players wrongly caught by the failing AoE */
+  hit?: Spot[];
+  /** players the failing AoE was supposed to hit but missed */
+  missed?: Spot[];
+  /** the AoE area that caused the fail, drawn highlighted on the frozen scene */
+  zone?: FailZone;
 };
 
 export type Result = { kind: 'clear' } | ({ kind: 'fail' } & FailInfo);

@@ -2,10 +2,12 @@ import { SETUP_POS, buildSetPlan, lp, type SetPlan } from './assignments';
 import { clampToArena, dist, stepToward } from './bots';
 import {
   ATE_CAST,
+  BAIT_DELAY,
   BAIT_TOL,
   BAIT_WINDOW,
   BOT_SPEED,
   CLEAVE_TO_SOAK,
+  CLONE_SPREAD_R,
   CONE_HALF_DEG,
   CONE_LEN,
   FP_CAST,
@@ -13,15 +15,17 @@ import {
   MOVE_SPEED,
   R_TOWER,
   SETUP_T,
-  SNAPSHOT_DELAY,
   SPREAD_R,
+  SPRINT_COOLDOWN,
+  SPRINT_DURATION,
+  SPRINT_SPEED,
   STACK_R,
   TELEGRAPH_T,
 } from './constants';
-import type { AttemptScript, Icon, Result, Spot, Vec2 } from './types';
+import type { AttemptScript, FailInfo, FailZone, Icon, Result, Spot, Vec2 } from './types';
 import { SPOTS } from './types';
 
-type EventKind = 'spawn' | 'resolve' | 'snapshot' | 'lock' | 'cleave' | 'clear';
+type EventKind = 'spawn' | 'resolve' | 'snapshot' | 'bait' | 'lock' | 'cleave' | 'clear';
 
 interface TimelineEvent {
   t: number;
@@ -40,6 +44,13 @@ export interface VisualEffect {
   pos: Vec2;
   dirRad?: number;
   until: number;
+}
+
+export interface Clone {
+  pos: Vec2;
+  /** aim point: tracks the party until All Things Ending locks it */
+  aim: Vec2;
+  locked: boolean;
 }
 
 /** which set the same group soaks next (for icon rerolls); AAABBBBA */
@@ -70,12 +81,15 @@ export class SimEngine {
   /** towers of the currently telegraphed set (spawn..resolve) */
   activeTowers: { plan: SetPlan; spawnT: number; resolveT: number } | null = null;
   effects: VisualEffect[] = [];
-  clones: Vec2[] = [];
+  clones: Clone[] = [];
   /** unit vector toward the locked bait (danger half), set at lock */
   cleaveDir: Vec2 | null = null;
   baitMarker: Vec2 | null = null;
   /** last set that spawned (for HUD progress) */
   currentSet = 0;
+
+  private sprintUntil = -Infinity;
+  private sprintReadyAt = 0;
 
   private timeline: TimelineEvent[];
   private nextEvent = 0;
@@ -100,35 +114,38 @@ export class SimEngine {
     }). Read your icon!`;
 
     // Timeline, matching the cactbot log cadence: towers resolve every 10s.
-    // Even towers spawn as the preceding odd set resolves; odd towers 3/5/7
-    // spawn at the clone snapshot, so the whole bait/lock/cleave sequence runs
-    // during their telegraph and the cleave lands CLEAVE_TO_SOAK before the
-    // soak (1.0 + 4.7 + 5.0 + 0.3 = 10, asserted in constants.ts).
+    // Even towers spawn as the preceding odd set resolves; Future's/Past's End
+    // resolves 1.3s BEFORE the even soak (clone snapshot + explosion); odd
+    // towers 3/5/7 spawn at the bait call, so the whole bait/lock/cleave
+    // sequence runs during their telegraph and the cleave lands CLEAVE_TO_SOAK
+    // before the soak (1.0 + 4.7 + 5.0 + 0.3 = 10, asserted in constants.ts).
     // Events are processed in push order, which breaks equal-t ties:
-    // resolve(odd) before spawn(even), snapshot before spawn(next odd).
+    // resolve(odd) before spawn(even), bait before spawn(next odd).
     this.timeline = [];
     this.timeline.push({ t: SETUP_T, kind: 'spawn', set: 1 });
     let oddResolve = SETUP_T + TELEGRAPH_T;
     this.timeline.push({ t: oddResolve, kind: 'resolve', set: 1 });
     for (let set = 2; set <= 8; set += 2) {
       const resolve = oddResolve + TELEGRAPH_T; // spawns at oddResolve
-      const snapshot = resolve + SNAPSHOT_DELAY;
-      const lock = snapshot + BAIT_WINDOW;
+      const snapshot = oddResolve + FP_CAST_DELAY + FP_CAST; // F/P cast end
+      const bait = resolve + BAIT_DELAY;
+      const lock = bait + BAIT_WINDOW;
       const cleave = lock + ATE_CAST;
       this.timeline.push({ t: oddResolve, kind: 'spawn', set });
-      this.timeline.push({ t: resolve, kind: 'resolve', set });
       this.timeline.push({ t: snapshot, kind: 'snapshot', set });
-      if (set < 8) this.timeline.push({ t: snapshot, kind: 'spawn', set: set + 1 });
+      this.timeline.push({ t: resolve, kind: 'resolve', set });
+      this.timeline.push({ t: bait, kind: 'bait', set });
+      if (set < 8) this.timeline.push({ t: bait, kind: 'spawn', set: set + 1 });
       this.timeline.push({ t: lock, kind: 'lock', set });
       this.timeline.push({ t: cleave, kind: 'cleave', set });
       this.castSegs.push({
         t0: oddResolve + FP_CAST_DELAY,
-        t1: oddResolve + FP_CAST_DELAY + FP_CAST,
+        t1: snapshot,
         label: this.script.future[set / 2 - 1] ? "Future's End" : "Past's End",
       });
       this.castSegs.push({ t0: lock, t1: cleave, label: 'All Things Ending' });
       if (set < 8) {
-        oddResolve = cleave + CLEAVE_TO_SOAK; // = snapshot + TELEGRAPH_T
+        oddResolve = cleave + CLEAVE_TO_SOAK; // = bait + TELEGRAPH_T
         this.timeline.push({ t: oddResolve, kind: 'resolve', set: set + 1 });
       } else {
         this.timeline.push({ t: cleave + 1.5, kind: 'clear', set: 8 });
@@ -145,19 +162,25 @@ export class SimEngine {
     return null;
   }
 
-  update(dt: number, userInput: Vec2, autopilot: boolean): void {
+  update(dt: number, userInput: Vec2, autopilot: boolean, sprint = false): void {
     if (this.result) return;
     // clamp dt so a background tab doesn't teleport the sim
     dt = Math.min(dt, 0.1);
     this.t += dt;
 
+    if (sprint && this.t >= this.sprintReadyAt) {
+      this.sprintUntil = this.t + SPRINT_DURATION;
+      this.sprintReadyAt = this.t + SPRINT_COOLDOWN;
+    }
+
     // movement
     const step = BOT_SPEED * dt;
+    const userSpeed = this.t < this.sprintUntil ? SPRINT_SPEED : MOVE_SPEED;
     for (const s of SPOTS) {
       if (s === this.userSpot && !autopilot) {
         const len = Math.hypot(userInput.x, userInput.y);
         if (len > 1e-6) {
-          const k = (MOVE_SPEED * dt) / Math.max(1, len);
+          const k = (userSpeed * dt) / Math.max(1, len);
           this.positions[s] = clampToArena({
             x: this.positions[s].x + userInput.x * k,
             y: this.positions[s].y + userInput.y * k,
@@ -166,6 +189,12 @@ export class SimEngine {
       } else {
         this.positions[s] = stepToward(this.positions[s], this.targets[s], step);
       }
+    }
+
+    // unlocked clones keep their aim trained on the party
+    if (this.clones.length > 0 && !this.clones[0].locked) {
+      const aim = this.partyCenter();
+      for (const c of this.clones) c.aim = aim;
     }
 
     // timeline
@@ -178,8 +207,25 @@ export class SimEngine {
     this.effects = this.effects.filter((e) => e.until > this.t);
   }
 
-  private fail(info: { reason: string; ghost?: Vec2 }): void {
+  get sprint(): { activeLeft: number; cooldownLeft: number } {
+    return {
+      activeLeft: Math.max(0, this.sprintUntil - this.t),
+      cooldownLeft: Math.max(0, this.sprintReadyAt - this.t),
+    };
+  }
+
+  private fail(info: FailInfo): void {
     this.result = { kind: 'fail', ...info };
+  }
+
+  private partyCenter(): Vec2 {
+    let x = 0;
+    let y = 0;
+    for (const s of SPOTS) {
+      x += this.positions[s].x;
+      y += this.positions[s].y;
+    }
+    return { x: x / SPOTS.length, y: y / SPOTS.length };
   }
 
   private handle(ev: TimelineEvent): void {
@@ -188,7 +234,7 @@ export class SimEngine {
       case 'spawn': {
         this.currentSet = ev.set;
         this.activeTowers = { plan, spawnT: ev.t, resolveT: ev.t + TELEGRAPH_T };
-        // Odd sets 3/5/7 spawn mid-bait (at the snapshot) — leave everyone on
+        // Odd sets 3/5/7 spawn mid-bait (at the bait call) — leave everyone on
         // the bait; they get their duty targets at the cleave lock.
         if (ev.set !== 1 && ev.set % 2 === 1) break;
         for (const s of SPOTS) this.targets[s] = plan.duties[s].pos;
@@ -209,15 +255,27 @@ export class SimEngine {
       }
       case 'resolve': {
         this.resolveTowers(plan);
-        this.activeTowers = null;
+        // on fail, keep the tower telegraph on the frozen scene
         if (this.result) return;
+        this.activeTowers = null;
         // odd resolve: the even spawn at the same instant sets the next hint
-        if (plan.parity === 'even') this.hint = 'Clones incoming — get ready to stack!';
+        if (plan.parity === 'even') this.hint = 'Towers soaked — get ready to stack!';
         break;
       }
       case 'snapshot': {
+        // Future's/Past's End resolves: clones spawn on the 4 closest players
+        // and explode point-blank, 1.3s before the even towers are soaked.
         if (!this.checkSnapshot(plan)) return;
-        this.clones = plan.expectedClosest4!.map((s) => ({ ...this.positions[s] }));
+        const aim = this.partyCenter();
+        this.clones = plan.expectedClosest4!.map((s) => ({
+          pos: { ...this.positions[s] },
+          aim,
+          locked: false,
+        }));
+        this.resolveCloneExplosions(plan);
+        break;
+      }
+      case 'bait': {
         this.baitMarker = plan.baitPos!;
         for (const s of SPOTS) this.targets[s] = plan.baitPos!;
         this.hint = plan.future
@@ -231,11 +289,23 @@ export class SimEngine {
           this.fail({
             reason: `You weren't stacked with the party for the ${plan.future ? 'FUTURE' : 'PAST'} bait — clones aim at the group.`,
             ghost: plan.baitPos!,
+            zone: { kind: 'circle', pos: plan.baitPos!, r: BAIT_TOL },
           });
           return;
         }
+        // Aims freeze on the party as All Things Ending begins.
+        const lockedAim = this.partyCenter();
+        for (const c of this.clones) {
+          c.aim = lockedAim;
+          c.locked = true;
+        }
         // Clones cleave the half at relative-north of the bait frame: toward
         // the bait for Future (they cleave in front), away for Past (behind).
+        // The boundary must be a center diameter, not per-clone half-planes:
+        // KR parks boss-hugging helpers at 5.4y while an old clone spawn can
+        // sit at 8.4y on the same azimuth (180° tower flip), and a baiter
+        // clone at relative ±45° would tilt a bait-aimed boundary onto the
+        // r-131° helpers — the strat's own spots only clear through-center.
         this.cleaveDir = lp(plan.baitFrameSouth!, 0, 1);
         this.baitMarker = null;
         const next = ev.set < 8 ? this.plans[ev.set] : null;
@@ -250,11 +320,13 @@ export class SimEngine {
         const d = this.cleaveDir!;
         if (u.x * d.x + u.y * d.y > 0) {
           const next = ev.set < 8 ? this.plans[ev.set] : null;
+          this.cleaveDir = null; // the fail zone replaces the live telegraph
           this.fail({
             reason: plan.future
               ? 'All Things Ending hit you — FUTURE clones cleave the half in front of them (toward the bait). Cross to the tower side when the baits lock.'
               : "All Things Ending hit you — PAST clones cleave the half BEHIND them, so the bait side was safe. You shouldn't have crossed.",
             ghost: next ? next.duties[this.userSpot].pos : plan.dodgePos!,
+            zone: { kind: 'half', dir: { ...d } },
           });
           return;
         }
@@ -287,19 +359,23 @@ export class SimEngine {
       if (same) continue;
 
       const sideName = side.toUpperCase();
+      const zone: FailZone = { kind: 'circle', pos: plan.towerCenters[side], r: R_TOWER };
       if (expected.includes(user) && !actual.includes(user)) {
         this.fail({
           reason: `You missed your tower — you were assigned the ${sideName} tower (set ${plan.setIdx}).`,
           ghost: plan.duties[user].pos,
+          zone,
         });
       } else if (actual.includes(user) && !expected.includes(user)) {
         this.fail({
           reason: `You soaked the ${sideName} tower, but it belonged to ${expected.join(' + ')}.`,
           ghost: plan.duties[user].pos,
+          zone,
         });
       } else {
         this.fail({
           reason: `The ${sideName} tower resolved with ${actual.length} player(s) — towers need exactly 2.`,
+          zone,
         });
       }
       return;
@@ -339,23 +415,40 @@ export class SimEngine {
       const baiter = plan.coneBaiter[c]!;
       const ok = hits.length === 1 && hits[0] === baiter;
       if (ok) continue;
+      const hit = hits.filter((s) => s !== baiter);
+      const missed = hits.includes(baiter) ? [] : [baiter];
+      const zone: FailZone = { kind: 'cone', pos: { ...src }, dirRad };
       if (user === baiter && nearest !== user) {
         this.fail({
           reason: `You failed to bait ${c}'s cone — ${nearest} was closer than you.`,
           ghost: plan.duties[user].pos,
+          hit,
+          missed,
+          zone,
         });
       } else if (hits.includes(user) && user !== baiter) {
         this.fail({
           reason: `You were clipped by ${c}'s cone (it fires at the nearest player and hits everyone in the wedge).`,
           ghost: plan.duties[user].pos,
+          hit,
+          missed,
+          zone,
         });
       } else if (user === c) {
         this.fail({
           reason: `Your cone hit ${hits.join(', ') || 'nobody'} — it must hit only ${baiter}. Position so ${baiter} is nearest.`,
           ghost: plan.duties[user].pos,
+          hit,
+          missed,
+          zone,
         });
       } else {
-        this.fail({ reason: `${c}'s cone hit ${hits.length} players (${hits.join(', ')}) — it must hit only ${baiter}.` });
+        this.fail({
+          reason: `${c}'s cone hit ${hits.length} players (${hits.join(', ')}) — it must hit only ${baiter}.`,
+          hit,
+          missed,
+          zone,
+        });
       }
       return;
     }
@@ -367,18 +460,23 @@ export class SimEngine {
       this.effects.push({ kind: 'spread', pos: { ...src }, until: this.t + 1.2 });
       const clipped = SPOTS.filter((s) => s !== sp && dist(this.positions[s], src) <= SPREAD_R);
       if (clipped.length === 0) continue;
+      const zone: FailZone = { kind: 'circle', pos: { ...src }, r: SPREAD_R };
       if (sp === user) {
         this.fail({
           reason: `Your SPREAD clipped ${clipped.join(', ')} — keep it isolated south of the tower.`,
           ghost: plan.duties[user].pos,
+          hit: clipped,
+          zone,
         });
       } else if (clipped.includes(user)) {
         this.fail({
           reason: `You stood in ${sp}'s spread AoE.`,
           ghost: plan.duties[user].pos,
+          hit: clipped,
+          zone,
         });
       } else {
-        this.fail({ reason: `${sp}'s spread clipped ${clipped.join(', ')}.` });
+        this.fail({ reason: `${sp}'s spread clipped ${clipped.join(', ')}.`, hit: clipped, zone });
       }
       return;
     }
@@ -391,20 +489,32 @@ export class SimEngine {
       const members = SPOTS.filter((s) => dist(this.positions[s], src) <= STACK_R);
       if (members.length === 3) continue;
       const expected = plan.stackMembers[h] ?? [];
+      const hit = members.filter((s) => !expected.includes(s));
+      const missed = expected.filter((s) => !members.includes(s));
+      const zone: FailZone = { kind: 'circle', pos: { ...src }, r: STACK_R };
       if (members.length < 3 && expected.includes(user) && !members.includes(user)) {
         this.fail({
           reason: `${h}'s stack only had ${members.length} — you were supposed to share it.`,
           ghost: plan.duties[user].pos,
+          hit,
+          missed,
+          zone,
         });
       } else if (members.length > 3 && members.includes(user) && !expected.includes(user)) {
         this.fail({
           reason: `${h}'s stack had ${members.length} players — you didn't belong in it.`,
           ghost: plan.duties[user].pos,
+          hit,
+          missed,
+          zone,
         });
       } else {
         this.fail({
           reason: `${h}'s stack resolved with ${members.length} players — it needs exactly 3.`,
           ghost: expected.includes(user) ? plan.duties[user].pos : undefined,
+          hit,
+          missed,
+          zone,
         });
       }
       return;
@@ -429,19 +539,64 @@ export class SimEngine {
     const same = expected.every((s) => actual.includes(s));
     if (same) return true;
 
+    // the "closest 4" boundary: everyone inside this ring got a clone
+    const zone: FailZone = {
+      kind: 'circle',
+      pos: { x: 0, y: 0 },
+      r: Math.hypot(this.positions[sorted[3]].x, this.positions[sorted[3]].y),
+    };
     if (actual.includes(user) && !expected.includes(user)) {
       this.fail({
         reason: 'A Kefka clone spawned on you — you were among the 4 players closest to the boss.',
         ghost: plan.duties[user].pos,
+        zone,
       });
     } else if (expected.includes(user) && !actual.includes(user)) {
       this.fail({
         reason: 'You were assigned a clone bait but were not among the 4 closest to the boss.',
         ghost: plan.duties[user].pos,
+        zone,
       });
     } else {
-      this.fail({ reason: `Clones spawned on the wrong players (${actual.join(', ')}).` });
+      this.fail({ reason: `Clones spawned on the wrong players (${actual.join(', ')}).`, zone });
     }
     return false;
+  }
+
+  /** Each clone detonates point-blank on its baiter as it spawns (BAD6–BAD9). */
+  private resolveCloneExplosions(plan: SetPlan): void {
+    const user = this.userSpot;
+    const label = plan.future ? "Future's End" : "Past's End";
+    for (const b of plan.expectedClosest4!) {
+      const src = this.positions[b];
+      this.effects.push({ kind: 'spread', pos: { ...src }, until: this.t + 1.2 });
+      const clipped = SPOTS.filter(
+        (s) => s !== b && dist(this.positions[s], src) <= CLONE_SPREAD_R,
+      );
+      if (clipped.length === 0) continue;
+      const zone: FailZone = { kind: 'circle', pos: { ...src }, r: CLONE_SPREAD_R };
+      if (b === user) {
+        this.fail({
+          reason: `The clone that spawned on you exploded onto ${clipped.join(', ')} — keep your bait spot isolated.`,
+          ghost: plan.duties[user].pos,
+          hit: clipped,
+          zone,
+        });
+      } else if (clipped.includes(user)) {
+        this.fail({
+          reason: `You were caught in the clone explosion on ${b} — ${label} detonates on the 4 baiters.`,
+          ghost: plan.duties[user].pos,
+          hit: clipped,
+          zone,
+        });
+      } else {
+        this.fail({
+          reason: `${b}'s clone explosion clipped ${clipped.join(', ')}.`,
+          hit: clipped,
+          zone,
+        });
+      }
+      return;
+    }
   }
 }

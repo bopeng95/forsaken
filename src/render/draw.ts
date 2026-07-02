@@ -8,7 +8,8 @@ import {
   R_TOWER,
   SPREAD_R,
   STACK_R,
-  WAYMARK_HALF,
+  WAYMARK_LETTER_R,
+  WAYMARK_NUM_HALF,
   WAYMARK_NUM_R,
   WAYMARK_R,
 } from '../sim/constants';
@@ -151,17 +152,19 @@ export function draw(
   ctx.textBaseline = 'middle';
   for (const w of WAYMARKS) {
     const [x, y] = P(compass(w.deg, w.r));
-    const s = WAYMARK_HALF * k;
     ctx.strokeStyle = w.color;
     ctx.globalAlpha = 0.75;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    if (w.shape === 'circle') ctx.arc(x, y, s, 0, Math.PI * 2);
+    if (w.shape === 'circle') ctx.arc(x, y, WAYMARK_LETTER_R * k, 0, Math.PI * 2);
     else {
+      // number marks are squares glued to the ground: the outline rotates
+      // with the camera, only the digit stays screen-upright
+      const s = WAYMARK_NUM_HALF * k;
       ctx.save();
       ctx.translate(x, y);
-      ctx.rotate(Math.PI / 4);
-      ctx.rect(-s * 0.8, -s * 0.8, s * 1.6, s * 1.6);
+      ctx.rotate(viewRotRad);
+      ctx.rect(-s, -s, s * 2, s * 2);
       ctx.restore();
     }
     ctx.stroke();
@@ -248,9 +251,24 @@ export function draw(
     }
   }
 
-  // ---- clones
+  // ---- clones (aim lines under the tokens)
   for (const c of eng.clones) {
-    const [x, y] = P(c);
+    const [x, y] = P(c.pos);
+    const [ax, ay] = P(c.aim);
+    const ang = Math.atan2(ay - y, ax - x);
+    ctx.strokeStyle = c.locked ? 'rgba(255,90,90,0.8)' : 'rgba(220,140,255,0.35)';
+    ctx.lineWidth = c.locked ? 2 : 1.5;
+    if (!c.locked) ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(x + Math.cos(ang) * 1.1 * k, y + Math.sin(ang) * 1.1 * k);
+    ctx.lineTo(ax, ay);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  for (const c of eng.clones) {
+    const [x, y] = P(c.pos);
+    const [ax, ay] = P(c.aim);
+    const ang = Math.atan2(ay - y, ax - x);
     ctx.beginPath();
     ctx.arc(x, y, 1.1 * k, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(90,40,120,0.9)';
@@ -258,6 +276,18 @@ export function draw(
     ctx.strokeStyle = 'rgba(220,140,255,0.9)';
     ctx.lineWidth = 2;
     ctx.stroke();
+    // facing chevron on the token edge
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(ang);
+    ctx.beginPath();
+    ctx.moveTo(1.9 * k, 0);
+    ctx.lineTo(1.15 * k, 0.5 * k);
+    ctx.lineTo(1.15 * k, -0.5 * k);
+    ctx.closePath();
+    ctx.fillStyle = c.locked ? 'rgba(255,90,90,0.9)' : 'rgba(220,140,255,0.7)';
+    ctx.fill();
+    ctx.restore();
     ctx.fillStyle = 'rgba(240,200,255,0.95)';
     ctx.font = `700 ${0.9 * k}px system-ui, sans-serif`;
     ctx.fillText('K', x, y + 0.5);
@@ -268,26 +298,78 @@ export function draw(
     drawPlayer(ctx, eng, s, P, k, s === eng.userSpot);
   }
 
-  // ---- fail ghost
-  if (eng.result?.kind === 'fail' && eng.result.ghost) {
-    const [x, y] = P(eng.result.ghost);
-    const pulse = 1 + 0.15 * Math.sin(performance.now() / 150);
-    ctx.strokeStyle = 'rgba(255,220,90,0.95)';
+  // ---- fail marks
+  if (eng.result?.kind === 'fail') {
+    const res = eng.result;
+
+    // the AoE area that caused the fail, highlighted under the player marks
+    if (res.zone) {
+      ctx.beginPath();
+      if (res.zone.kind === 'half') {
+        const phi = Math.atan2(res.zone.dir.y, res.zone.dir.x) + viewRotRad;
+        ctx.arc(cx, cy, R_ARENA * k, phi - Math.PI / 2, phi + Math.PI / 2);
+        ctx.closePath();
+      } else if (res.zone.kind === 'cone') {
+        const [x, y] = P(res.zone.pos);
+        const half = (CONE_HALF_DEG * Math.PI) / 180;
+        const dir = res.zone.dirRad + viewRotRad;
+        ctx.moveTo(x, y);
+        ctx.arc(x, y, CONE_LEN * k, dir - half, dir + half);
+        ctx.closePath();
+      } else {
+        const [x, y] = P(res.zone.pos);
+        ctx.arc(x, y, res.zone.r * k, 0, Math.PI * 2);
+      }
+      ctx.fillStyle = 'rgba(255,80,80,0.25)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,80,80,0.9)';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    }
+
+    // players wrongly caught by the failing AoE
+    ctx.strokeStyle = 'rgba(255,80,80,0.95)';
+    ctx.lineWidth = 4;
+    for (const s of res.hit ?? []) {
+      const [x, y] = P(eng.positions[s]);
+      ctx.beginPath();
+      ctx.moveTo(x - 0.9 * k, y - 0.9 * k);
+      ctx.lineTo(x + 0.9 * k, y + 0.9 * k);
+      ctx.moveTo(x + 0.9 * k, y - 0.9 * k);
+      ctx.lineTo(x - 0.9 * k, y + 0.9 * k);
+      ctx.stroke();
+    }
+
+    // players the AoE was supposed to hit but missed
+    ctx.strokeStyle = 'rgba(255,80,80,0.9)';
     ctx.lineWidth = 3;
-    ctx.setLineDash([5, 4]);
-    ctx.beginPath();
-    ctx.arc(x, y, 1.5 * k * pulse, 0, Math.PI * 2);
-    ctx.stroke();
+    ctx.setLineDash([4, 3]);
+    for (const s of res.missed ?? []) {
+      const [x, y] = P(eng.positions[s]);
+      ctx.beginPath();
+      ctx.arc(x, y, 1.4 * k, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.moveTo(x - 0.8 * k, y - 0.8 * k);
-    ctx.lineTo(x + 0.8 * k, y + 0.8 * k);
-    ctx.moveTo(x + 0.8 * k, y - 0.8 * k);
-    ctx.lineTo(x - 0.8 * k, y + 0.8 * k);
-    ctx.stroke();
-    ctx.fillStyle = 'rgba(255,220,90,0.95)';
-    ctx.font = `700 ${0.8 * k}px system-ui, sans-serif`;
-    ctx.fillText('you should be here', x, y - 2.2 * k);
+
+    // where the user should have been
+    if (res.ghost) {
+      const [x, y] = P(res.ghost);
+      const pulse = 1 + 0.15 * Math.sin(performance.now() / 150);
+      ctx.strokeStyle = 'rgba(255,220,90,0.95)';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.arc(x, y, 1.5 * k * pulse, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(x - 0.8 * k, y - 0.8 * k);
+      ctx.lineTo(x + 0.8 * k, y + 0.8 * k);
+      ctx.moveTo(x + 0.8 * k, y - 0.8 * k);
+      ctx.lineTo(x - 0.8 * k, y + 0.8 * k);
+      ctx.stroke();
+    }
   }
 
   ctx.restore();
@@ -357,25 +439,37 @@ function drawPlayer(
     ctx.fillStyle = '#e0a052';
     ctx.fill();
   } else if (icon === 'stack') {
+    ctx.save();
     ctx.strokeStyle = '#6ee08c';
     ctx.lineWidth = 3;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
     for (let i = 0; i < 3; i++) {
-      const yy = iy - 0.45 * k + i * 0.45 * k;
+      const a = -Math.PI / 2 + (i * 2 * Math.PI) / 3;
+      const dx = Math.cos(a);
+      const dy = Math.sin(a);
+      // chevron pointing at the icon center: apex leaves the middle empty,
+      // wings reach back outward
+      const ax = x + dx * 0.18 * k;
+      const ay = iy + dy * 0.18 * k;
+      const bx = ax + dx * 0.34 * k;
+      const by = ay + dy * 0.34 * k;
       ctx.beginPath();
-      ctx.moveTo(x - 0.55 * k, yy + 0.3 * k);
-      ctx.lineTo(x, yy);
-      ctx.lineTo(x + 0.55 * k, yy + 0.3 * k);
+      ctx.moveTo(bx - dy * 0.26 * k, by + dx * 0.26 * k);
+      ctx.lineTo(ax, ay);
+      ctx.lineTo(bx + dy * 0.26 * k, by - dx * 0.26 * k);
       ctx.stroke();
     }
+    ctx.restore();
   }
 
-  // Spell's Trouble pips
+  // Spell's Trouble pips — user only, below the token
   const pips = eng.stacksLeft[s];
-  if (pips > 0) {
+  if (isUser && pips > 0) {
     ctx.fillStyle = '#c390f0';
     for (let i = 0; i < pips; i++) {
       const px = x - ((pips - 1) * 0.42 * k) / 2 + i * 0.42 * k;
-      const py = iy - 1.15 * k;
+      const py = y + 1.5 * k;
       ctx.save();
       ctx.translate(px, py);
       ctx.rotate(Math.PI / 4);

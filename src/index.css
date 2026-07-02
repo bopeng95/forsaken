@@ -119,6 +119,55 @@ button.primary {
   background: #322e44;
 }
 
+.prefs {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 6px;
+}
+
+.pref-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pref-label {
+  font-size: 13px;
+  color: #8f87ab;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  width: 110px;
+  text-align: right;
+}
+
+.toggle {
+  padding: 6px 14px;
+  font-size: 14px;
+}
+
+.toggle.active {
+  background: #6b4fd8;
+  border-color: #8a73e8;
+  color: #fff;
+}
+
+.toggle:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.toggle:disabled:hover {
+  border-color: #3d3a4f;
+}
+
+.pref-note {
+  margin: 0;
+  font-size: 12px;
+  color: #7d7596;
+}
+
 .start .fine {
   font-size: 12.5px;
   color: #7d7596;
@@ -146,8 +195,28 @@ button.primary {
   width: min(88vmin, 840px);
 }
 
-.legend {
+.side-col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
   width: 230px;
+}
+
+.sprint-panel {
+  background: #16131f;
+  border: 1px solid #2e2a40;
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: 12px;
+  color: #9d94ba;
+}
+
+.sprint-panel.active {
+  color: #6ee08c;
+  border-color: #3a5a44;
+}
+
+.legend {
   background: #16131f;
   border: 1px solid #2e2a40;
   border-radius: 12px;
