@@ -202,7 +202,8 @@ button.primary {
   width: 230px;
 }
 
-.sprint-panel {
+.sprint-panel,
+.dash-panel {
   background: #16131f;
   border: 1px solid #2e2a40;
   border-radius: 12px;
