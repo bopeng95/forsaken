@@ -95,6 +95,10 @@ export function StartScreen({
         Duplicate-debuff tower flexes use HTMR priority (Healer &gt; Tank &gt; Melee &gt; Ranged, 1
         before 2), per the Kroxy-Rinon plan.
       </p>
+      <p className="fine">
+        Disclaimer: safe positions are approximations and may not be completely accurate — use this
+        to learn where you need to be, not as a pixel-perfect reference.
+      </p>
     </div>
   );
 }
