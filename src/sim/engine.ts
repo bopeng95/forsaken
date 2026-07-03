@@ -338,8 +338,8 @@ export class SimEngine {
         // bait), the OPPOSITE half for Past (they cleave behind). A perfect
         // bait reproduces the fixed relative-north direction of the bait
         // frame. The boundary stays a center diameter, not per-clone
-        // half-planes: KR parks boss-hugging helpers at 5.4y while an old
-        // clone spawn can sit at 8.4y on the same azimuth (180° tower flip),
+        // half-planes: KR parks boss-hugging helpers at 3.86y while an old
+        // clone spawn can sit at 6y on the same azimuth (180° tower flip),
         // and a baiter clone at relative ±45° would tilt a bait-aimed
         // boundary onto the r-131° helpers — the strat's own spots only
         // clear through-center. A user at the arena center can't define a
