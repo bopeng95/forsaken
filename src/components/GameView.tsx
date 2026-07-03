@@ -395,7 +395,7 @@ export function GameView({
               Replay Pattern <kbd>T</kbd>
             </button>
             <button className="panel-btn" onClick={onExit}>
-              Change Role <kbd>C</kbd>
+              Change Spot <kbd>C</kbd>
             </button>
           </div>
         </div>
