@@ -16,6 +16,7 @@ export default function App() {
   const [rotateView, setRotateView] = useState(false);
   const [showHints, setShowHints] = useState(false);
   const [blindBait, setBlindBait] = useState(false);
+  const [persistIcons, setPersistIcons] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [focus, setFocus] = useState<Spot | null>(null);
 
@@ -45,6 +46,8 @@ export default function App() {
       onShowHints={setShowHints}
       blindBait={blindBait}
       onBlindBait={setBlindBait}
+      persistIcons={persistIcons}
+      onPersistIcons={setPersistIcons}
       speed={speed}
       onSpeed={setSpeed}
       focus={focus}

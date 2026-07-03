@@ -77,6 +77,8 @@ export class SimEngine {
   t = 0;
   positions: Record<Spot, Vec2>;
   icons: Record<Spot, Icon | null>;
+  /** sim time each spot's current icon was (re)assigned (for the hide-icons fade) */
+  iconSetAt: Record<Spot, number>;
   stacksLeft: Record<Spot, number>;
   targets: Record<Spot, Vec2>;
   hint: string;
@@ -118,6 +120,7 @@ export class SimEngine {
     this.targets = { ...SETUP_POS };
     this.stacksLeft = Object.fromEntries(SPOTS.map((s) => [s, 4])) as Record<Spot, number>;
     this.icons = Object.fromEntries(SPOTS.map((s) => [s, null])) as Record<Spot, Icon | null>;
+    this.iconSetAt = Object.fromEntries(SPOTS.map((s) => [s, 0])) as Record<Spot, number>;
     // Group A holds its set-1 icons, Group B holds its (remembered) set-4 icons.
     for (const [s, icon] of Object.entries(script.soakIcons[0])) this.icons[s as Spot] = icon!;
     for (const [s, icon] of Object.entries(script.soakIcons[3])) this.icons[s as Spot] = icon!;
@@ -176,7 +179,7 @@ export class SimEngine {
     return null;
   }
 
-  update(dt: number, userInput: Vec2, autopilot: boolean, sprint = false, dash = false): void {
+  update(dt: number, userInput: Vec2, sprint = false, dash = false): void {
     if (this.result) return;
     // clamp dt so a background tab doesn't teleport the sim
     dt = Math.min(dt, 0.1);
@@ -192,7 +195,7 @@ export class SimEngine {
       this.dashRechargeAt += DASH_RECHARGE;
     }
 
-    if (dash && !autopilot && this.dashCharges > 0 && this.t >= this.dashUntil) {
+    if (dash && this.dashCharges > 0 && this.t >= this.dashUntil) {
       const inLen = Math.hypot(userInput.x, userInput.y);
       const dir =
         inLen > 1e-6 ? { x: userInput.x / inLen, y: userInput.y / inLen } : this.lastMoveDir;
@@ -208,7 +211,7 @@ export class SimEngine {
     const step = BOT_SPEED * dt;
     const userSpeed = this.t < this.sprintUntil ? SPRINT_SPEED : MOVE_SPEED;
     for (const s of SPOTS) {
-      if (s === this.userSpot && !autopilot) {
+      if (s === this.userSpot) {
         if (this.t < this.dashUntil) {
           const k = (DASH_DIST / DASH_DURATION) * dt;
           this.positions[s] = clampToArena({
@@ -583,6 +586,7 @@ export class SimEngine {
     for (const s of soakers) {
       this.stacksLeft[s] = Math.max(0, this.stacksLeft[s] - 1);
       this.icons[s] = nextIcons ? nextIcons[s]! : null;
+      this.iconSetAt[s] = this.t;
     }
   }
 
