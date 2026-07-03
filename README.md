@@ -4,16 +4,9 @@ A browser-based practice simulator for the **Forsaken** mechanic in FFXIV's **Da
 
 Pick which of the 8 party spots you play — T1, T2, H1, H2, M1, M2, R1, R2 — and move your character with WASD or the arrow keys. The other 7 players are bots that always resolve the mechanic correctly. Each attempt rolls a fresh random pattern; on a wipe you'll see what went wrong, with the option to try a new pattern or retry the same one.
 
-## Getting started
+## Play
 
-```sh
-git clone git@github.com:bopeng95/forsaken.git
-cd forsaken
-npm install
-npm run dev
-```
-
-Then open the local URL Vite prints (usually http://localhost:5173).
+No setup needed — just visit **[forsaken-iota.vercel.app](https://forsaken-iota.vercel.app)**.
 
 ## License
 
