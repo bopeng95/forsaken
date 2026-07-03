@@ -11,6 +11,7 @@ import {
 } from '../input/keyboard';
 import { Legend } from './Legend';
 import { ROLE_COLOR, draw } from '../render/draw';
+import { ICON_SHOW_T } from '../sim/constants';
 import { SimEngine } from '../sim/engine';
 import { rollAttempt } from '../sim/randomizer';
 import type { Icon, Result, Spot } from '../sim/types';
@@ -24,6 +25,8 @@ interface Ui {
   castFrac: number;
   setIdx: number;
   icon: Icon | null;
+  /** hide-icons mode: the icon's display window has expired */
+  iconHidden: boolean;
   pips: number;
   /** whole seconds of sprint buff left (0 = not sprinting) */
   sprintActive: number;
@@ -114,6 +117,8 @@ export function GameView({
   onShowHints,
   blindBait,
   onBlindBait,
+  persistIcons,
+  onPersistIcons,
   speed,
   onSpeed,
   focus,
@@ -130,6 +135,8 @@ export function GameView({
   onShowHints: (on: boolean) => void;
   blindBait: boolean;
   onBlindBait: (on: boolean) => void;
+  persistIcons: boolean;
+  onPersistIcons: (on: boolean) => void;
   speed: number;
   onSpeed: (x: number) => void;
   focus: Spot | null;
@@ -140,10 +147,10 @@ export function GameView({
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<SimEngine | null>(null);
-  const autopilotRef = useRef(false);
   const rotateViewRef = useRef(rotateView);
   const showHintsRef = useRef(showHints);
   const blindBaitRef = useRef(blindBait);
+  const persistIconsRef = useRef(persistIcons);
   const speedRef = useRef(speed);
   const focusRef = useRef(focus);
   const pausedRef = useRef(true);
@@ -151,15 +158,14 @@ export function GameView({
   const onNewSeedRef = useRef(onNewSeed);
   const onSameSeedRef = useRef(onSameSeed);
   const viewRotRef = useRef(0);
-  const [autopilot, setAutopilot] = useState(false);
   const [paused, setPaused] = useState(true);
   const [ui, setUi] = useState<Ui | null>(null);
   const uiJson = useRef('');
 
-  autopilotRef.current = autopilot;
   rotateViewRef.current = rotateView;
   showHintsRef.current = showHints;
   blindBaitRef.current = blindBait;
+  persistIconsRef.current = persistIcons;
   speedRef.current = speed;
   focusRef.current = focus;
   pausedRef.current = paused;
@@ -221,7 +227,6 @@ export function GameView({
         engine.update(
           dt * speedRef.current,
           { x: v.x * rc - v.y * rs, y: v.x * rs + v.y * rc },
-          autopilotRef.current,
           sprintPressed,
           dashPressed,
         );
@@ -236,7 +241,16 @@ export function GameView({
       const ctx = canvas.getContext('2d')!;
       ctx.save();
       ctx.scale(dpr, dpr);
-      draw(ctx, engine, cssSize, rot, showHintsRef.current, focusRef.current, blindBaitRef.current);
+      draw(
+        ctx,
+        engine,
+        cssSize,
+        rot,
+        showHintsRef.current,
+        focusRef.current,
+        blindBaitRef.current,
+        persistIconsRef.current,
+      );
       ctx.restore();
 
       const cast = engine.castBar;
@@ -249,6 +263,7 @@ export function GameView({
         castFrac: cast ? Math.round(cast.frac * 50) / 50 : 0,
         setIdx: engine.currentSet,
         icon: engine.icons[spot],
+        iconHidden: !persistIconsRef.current && engine.t - engine.iconSetAt[spot] >= ICON_SHOW_T,
         pips: engine.stacksLeft[spot],
         sprintActive: Math.ceil(sprint.activeLeft),
         sprintCd: Math.ceil(sprint.cooldownLeft),
@@ -290,7 +305,8 @@ export function GameView({
             </div>
           )}
           <span className="hud-you">
-            {spot} · {ui?.icon ? ui.icon.toUpperCase() : '—'} · {ui?.pips ?? 4} left
+            {spot} · {ui?.icon ? (ui.iconHidden ? '?' : ui.icon.toUpperCase()) : '—'} ·{' '}
+            {ui?.pips ?? 4} left
           </span>
         </div>
 
@@ -359,10 +375,10 @@ export function GameView({
             <label className="controls-check">
               <input
                 type="checkbox"
-                checked={autopilot}
-                onChange={(e) => setAutopilot(e.target.checked)}
+                checked={persistIcons}
+                onChange={(e) => onPersistIcons(e.target.checked)}
               />
-              autopilot (bot plays your role)
+              display debuff indefinitely
             </label>
             <label className="controls-check">
               <input

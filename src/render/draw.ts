@@ -2,6 +2,7 @@ import type { SimEngine } from '../sim/engine';
 import {
   CONE_HALF_DEG,
   CONE_LEN,
+  ICON_SHOW_T,
   R_ARENA,
   R_INNER_RING,
   R_OUTER_RING,
@@ -56,6 +57,7 @@ export function draw(
   showHints = false,
   focus: Spot | null = null,
   blindBait = false,
+  persistIcons = false,
 ): void {
   const k = cssSize / (2 * (R_ARENA + 2.5));
   const cx = cssSize / 2;
@@ -304,7 +306,7 @@ export function draw(
     const isUser = s === eng.userSpot;
     if (!isUser && botAlpha <= 0) continue;
     if (!isUser && botAlpha < 1) ctx.globalAlpha = botAlpha;
-    drawPlayer(ctx, eng, s, P, k, isUser, focus);
+    drawPlayer(ctx, eng, s, P, k, isUser, focus, persistIcons);
     ctx.globalAlpha = 1;
   }
 
@@ -410,6 +412,7 @@ function drawPlayer(
   k: number,
   isUser: boolean,
   focus: Spot | null,
+  persistIcons: boolean,
 ): void {
   const [x, y] = P(eng.positions[s]);
   const color = ROLE_COLOR[roleOf(s)];
@@ -428,7 +431,16 @@ function drawPlayer(
   ctx.fillText(s, x, y);
 
   // debuff icon above head (focus mode hides every icon except the user's and the focused bot's)
-  const icon = focus === null || s === focus || isUser ? eng.icons[s] : null;
+  let icon = focus === null || s === focus || isUser ? eng.icons[s] : null;
+  // like the real fight, each icon only shows for ICON_SHOW_T after (re)assignment
+  // (unless the "display debuff indefinitely" option is on)
+  let iconAlpha = 1;
+  if (!persistIcons && icon) {
+    iconAlpha = Math.min(1, Math.max(0, 1 - (eng.t - eng.iconSetAt[s] - ICON_SHOW_T) / BAIT_FADE_T));
+    if (iconAlpha <= 0) icon = null;
+  }
+  const prevAlpha = ctx.globalAlpha;
+  if (iconAlpha < 1) ctx.globalAlpha = prevAlpha * iconAlpha;
   const iy = y - 1.9 * k;
   if (icon === 'cone') {
     ctx.beginPath();
@@ -471,6 +483,7 @@ function drawPlayer(
     }
     ctx.restore();
   }
+  ctx.globalAlpha = prevAlpha;
 
   // Spell's Trouble pips — user only, below the token
   const pips = eng.stacksLeft[s];
