@@ -59,7 +59,7 @@ export function draw(
   blindBait = false,
   persistIcons = false,
 ): void {
-  const k = cssSize / (2 * (R_ARENA + 2.5));
+  const k = cssSize / (2 * (R_ARENA + 1.5));
   const cx = cssSize / 2;
   const cy = cssSize / 2;
   const rc = Math.cos(viewRotRad);
@@ -395,7 +395,7 @@ export function draw(
 
   // true-north marker outside the rim (only when the camera is rotated)
   if (Math.abs(viewRotRad) > 0.01) {
-    const [nx, ny] = P({ x: 0, y: -(R_ARENA + 1.3) });
+    const [nx, ny] = P({ x: 0, y: -(R_ARENA + 0.9) });
     ctx.fillStyle = 'rgba(200,180,255,0.8)';
     ctx.font = `700 ${1.0 * k}px system-ui, sans-serif`;
     ctx.textAlign = 'center';

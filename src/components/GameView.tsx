@@ -287,15 +287,6 @@ export function GameView({
     <div className="game">
       <div className="game-row">
         <div className="canvas-wrap">
-        <canvas ref={canvasRef} className="arena" />
-
-        {ui?.result && (
-          <div className={`result-banner ${ui.result.kind}`}>
-            <strong>{ui.result.kind === 'clear' ? 'Forsaken resolved!' : 'Wipe'}</strong>
-            {ui.result.kind === 'fail' && <span className="reason">{ui.result.reason}</span>}
-          </div>
-        )}
-
         <div className="hud-top">
           <span className="hud-set">{ui?.setIdx ? `Towers ${ui.setIdx}/8` : 'Setup'}</span>
           {ui?.castLabel && (
@@ -309,6 +300,15 @@ export function GameView({
             {ui?.pips ?? 4} left
           </span>
         </div>
+
+        <canvas ref={canvasRef} className="arena" />
+
+        {ui?.result && (
+          <div className={`result-banner ${ui.result.kind}`}>
+            <strong>{ui.result.kind === 'clear' ? 'Forsaken resolved!' : 'Wipe'}</strong>
+            {ui.result.kind === 'fail' && <span className="reason">{ui.result.reason}</span>}
+          </div>
+        )}
 
         {showHints && !(blindBait && ui?.baitActive) && (
           <div className="hud-bottom">{ui?.hint}</div>

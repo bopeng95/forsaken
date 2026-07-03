@@ -403,14 +403,13 @@ canvas.arena {
 }
 
 .hud-top {
-  position: absolute;
-  top: 10px;
-  left: 12px;
-  right: 12px;
+  /* a real header strip above the canvas, so it never covers the board */
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
-  pointer-events: none;
+  min-height: 27px;
+  margin-bottom: 8px;
 }
 
 .hud-set {
@@ -433,8 +432,13 @@ canvas.arena {
 }
 
 .castbar {
-  position: relative;
-  flex: 0 1 300px;
+  /* centered in the header strip, between the two chips */
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 300px;
+  max-width: 38%;
   height: 22px;
   background: rgba(20, 16, 30, 0.8);
   border: 1px solid #4d4766;
