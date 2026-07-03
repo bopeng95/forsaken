@@ -18,6 +18,8 @@ import { SPOTS, roleOf } from '../sim/types';
 
 interface Ui {
   hint: string;
+  /** the Future/Past bait window is live (bait call → cleave lock) */
+  baitActive: boolean;
   castLabel: string | null;
   castFrac: number;
   setIdx: number;
@@ -110,6 +112,8 @@ export function GameView({
   onRotateView,
   showHints,
   onShowHints,
+  blindBait,
+  onBlindBait,
   speed,
   onSpeed,
   focus,
@@ -124,6 +128,8 @@ export function GameView({
   onRotateView: (on: boolean) => void;
   showHints: boolean;
   onShowHints: (on: boolean) => void;
+  blindBait: boolean;
+  onBlindBait: (on: boolean) => void;
   speed: number;
   onSpeed: (x: number) => void;
   focus: Spot | null;
@@ -137,6 +143,7 @@ export function GameView({
   const autopilotRef = useRef(false);
   const rotateViewRef = useRef(rotateView);
   const showHintsRef = useRef(showHints);
+  const blindBaitRef = useRef(blindBait);
   const speedRef = useRef(speed);
   const focusRef = useRef(focus);
   const pausedRef = useRef(true);
@@ -152,6 +159,7 @@ export function GameView({
   autopilotRef.current = autopilot;
   rotateViewRef.current = rotateView;
   showHintsRef.current = showHints;
+  blindBaitRef.current = blindBait;
   speedRef.current = speed;
   focusRef.current = focus;
   pausedRef.current = paused;
@@ -228,7 +236,7 @@ export function GameView({
       const ctx = canvas.getContext('2d')!;
       ctx.save();
       ctx.scale(dpr, dpr);
-      draw(ctx, engine, cssSize, rot, showHintsRef.current, focusRef.current);
+      draw(ctx, engine, cssSize, rot, showHintsRef.current, focusRef.current, blindBaitRef.current);
       ctx.restore();
 
       const cast = engine.castBar;
@@ -236,6 +244,7 @@ export function GameView({
       const dash = engine.dash;
       const snapshot: Ui = {
         hint: engine.hint,
+        baitActive: engine.baitMarker !== null,
         castLabel: cast?.label ?? null,
         castFrac: cast ? Math.round(cast.frac * 50) / 50 : 0,
         setIdx: engine.currentSet,
@@ -285,7 +294,9 @@ export function GameView({
           </span>
         </div>
 
-        {showHints && <div className="hud-bottom">{ui?.hint}</div>}
+        {showHints && !(blindBait && ui?.baitActive) && (
+          <div className="hud-bottom">{ui?.hint}</div>
+        )}
         </div>
         <div className="side-col">
           <Legend />
@@ -336,6 +347,14 @@ export function GameView({
                 onChange={(e) => onShowHints(e.target.checked)}
               />
               hints
+            </label>
+            <label className="controls-check">
+              <input
+                type="checkbox"
+                checked={blindBait}
+                onChange={(e) => onBlindBait(e.target.checked)}
+              />
+              blind F/P bait
             </label>
             <label className="controls-check">
               <input
