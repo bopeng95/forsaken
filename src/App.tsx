@@ -14,6 +14,7 @@ export default function App() {
   const [seed, setSeed] = useState(0);
   const [run, setRun] = useState(0);
   const [rotateView, setRotateView] = useState(false);
+  const [showHints, setShowHints] = useState(false);
 
   if (!spot) {
     return (
@@ -36,6 +37,8 @@ export default function App() {
       seed={seed}
       rotateView={rotateView}
       onRotateView={setRotateView}
+      showHints={showHints}
+      onShowHints={setShowHints}
       onNewSeed={() => {
         setSeed(findSeed(spot, prefs, randomSeed));
         setRun((r) => r + 1);

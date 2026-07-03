@@ -2,8 +2,8 @@ import { SETUP_POS, buildSetPlan, lp, type SetPlan } from './assignments';
 import { clampToArena, dist, stepToward } from './bots';
 import {
   ATE_CAST,
+  BAIT_CENTER_EPS,
   BAIT_DELAY,
-  BAIT_TOL,
   BAIT_WINDOW,
   BOT_SPEED,
   CLEAVE_TO_SOAK,
@@ -228,9 +228,9 @@ export class SimEngine {
       }
     }
 
-    // unlocked clones keep their aim trained on the party
+    // unlocked clones keep their aim trained on the user — the boss targets YOU
     if (this.clones.length > 0 && !this.clones[0].locked) {
-      const aim = this.partyCenter();
+      const aim = { ...this.positions[this.userSpot] };
       for (const c of this.clones) c.aim = aim;
     }
 
@@ -261,16 +261,6 @@ export class SimEngine {
 
   private fail(info: FailInfo): void {
     this.result = { kind: 'fail', ...info };
-  }
-
-  private partyCenter(): Vec2 {
-    let x = 0;
-    let y = 0;
-    for (const s of SPOTS) {
-      x += this.positions[s].x;
-      y += this.positions[s].y;
-    }
-    return { x: x / SPOTS.length, y: y / SPOTS.length };
   }
 
   private handle(ev: TimelineEvent): void {
@@ -311,7 +301,7 @@ export class SimEngine {
         // Future's/Past's End resolves: clones spawn on the 4 closest players
         // and explode point-blank, 1.3s before the even towers are soaked.
         if (!this.checkSnapshot(plan)) return;
-        const aim = this.partyCenter();
+        const aim = { ...this.positions[this.userSpot] };
         this.clones = plan.expectedClosest4!.map((s) => ({
           pos: { ...this.positions[s] },
           aim,
@@ -329,50 +319,67 @@ export class SimEngine {
         break;
       }
       case 'lock': {
+        // Aims freeze on the bait — the boss targets YOU — as All Things Ending begins.
         const u = this.positions[this.userSpot];
-        if (dist(u, plan.baitPos!) > BAIT_TOL) {
-          this.fail({
-            reason: `You weren't stacked with the party for the ${plan.future ? 'FUTURE' : 'PAST'} bait — clones aim at the group.`,
-            ghost: plan.baitPos!,
-            zone: { kind: 'circle', pos: plan.baitPos!, r: BAIT_TOL },
-          });
-          return;
-        }
-        // Aims freeze on the party as All Things Ending begins.
-        const lockedAim = this.partyCenter();
+        const lockedAim = { ...u };
         for (const c of this.clones) {
           c.aim = lockedAim;
           c.locked = true;
         }
-        // Clones cleave the half at relative-north of the bait frame: toward
-        // the bait for Future (they cleave in front), away for Past (behind).
-        // The boundary must be a center diameter, not per-clone half-planes:
-        // KR parks boss-hugging helpers at 5.4y while an old clone spawn can
-        // sit at 8.4y on the same azimuth (180° tower flip), and a baiter
-        // clone at relative ±45° would tilt a bait-aimed boundary onto the
-        // r-131° helpers — the strat's own spots only clear through-center.
-        this.cleaveDir = lp(plan.baitFrameSouth!, 0, 1);
+        // The cleave orientation follows the USER's bait: the danger half
+        // CONTAINS the user for Future (clones cleave in front, toward the
+        // bait), the OPPOSITE half for Past (they cleave behind). A perfect
+        // bait reproduces the fixed relative-north direction of the bait
+        // frame. The boundary stays a center diameter, not per-clone
+        // half-planes: KR parks boss-hugging helpers at 5.4y while an old
+        // clone spawn can sit at 8.4y on the same azimuth (180° tower flip),
+        // and a baiter clone at relative ±45° would tilt a bait-aimed
+        // boundary onto the r-131° helpers — the strat's own spots only
+        // clear through-center. A user at the arena center can't define a
+        // diameter — fall back to the ideal frame.
+        const r = Math.hypot(u.x, u.y);
+        this.cleaveDir =
+          r < BAIT_CENTER_EPS
+            ? lp(plan.baitFrameSouth!, 0, 1)
+            : plan.future
+              ? { x: u.x / r, y: u.y / r }
+              : { x: -u.x / r, y: -u.y / r };
         this.baitMarker = null;
         const next = ev.set < 8 ? this.plans[ev.set] : null;
         for (const s of SPOTS) this.targets[s] = next ? next.duties[s].pos : plan.dodgePos!;
         this.hint = plan.future
-          ? 'ALL THINGS ENDING — the cleave chases the bait: CROSS to the tower side!'
-          : "ALL THINGS ENDING — the cleave hits the far half: you're safe, head to your tower job.";
+          ? 'ALL THINGS ENDING — the cleave locked onto YOUR side: CROSS to the tower side!'
+          : "ALL THINGS ENDING — the cleave hits the half OPPOSITE you: don't cross, head to your tower job.";
         break;
       }
       case 'cleave': {
-        const u = this.positions[this.userSpot];
         const d = this.cleaveDir!;
-        if (u.x * d.x + u.y * d.y > 0) {
+        const caught = SPOTS.filter((s) => {
+          const p = this.positions[s];
+          return p.x * d.x + p.y * d.y > 0;
+        });
+        if (caught.length > 0) {
           const next = ev.set < 8 ? this.plans[ev.set] : null;
           this.cleaveDir = null; // the fail zone replaces the live telegraph
-          this.fail({
-            reason: plan.future
-              ? 'All Things Ending hit you — FUTURE clones cleave the half in front of them (toward the bait). Cross to the tower side when the baits lock.'
-              : "All Things Ending hit you — PAST clones cleave the half BEHIND them, so the bait side was safe. You shouldn't have crossed.",
-            ghost: next ? next.duties[this.userSpot].pos : plan.dodgePos!,
-            zone: { kind: 'half', dir: { ...d } },
-          });
+          const bots = caught.filter((s) => s !== this.userSpot);
+          const also = bots.length > 0 ? ` It also clipped ${bots.join(', ')}.` : '';
+          this.fail(
+            caught.includes(this.userSpot)
+              ? {
+                  reason: plan.future
+                    ? `All Things Ending hit you — FUTURE clones cleave the half toward the bait (YOU). Cross to the other side once the cast starts.${also}`
+                    : `All Things Ending hit you — PAST clones cleave the half OPPOSITE the bait (you), so your side was safe. You shouldn't have crossed.${also}`,
+                  ghost: next ? next.duties[this.userSpot].pos : plan.dodgePos!,
+                  hit: caught,
+                  zone: { kind: 'half', dir: { ...d } },
+                }
+              : {
+                  reason: `Your ${plan.future ? 'FUTURE' : 'PAST'} bait was misaimed — the cleave follows YOUR position at the lock and clipped ${bots.join(', ')} on their dodge spots. Bait max melee ${plan.future ? 'OPPOSITE' : 'BETWEEN'} the new towers with the party.`,
+                  ghost: plan.baitPos!,
+                  hit: caught,
+                  zone: { kind: 'half', dir: { ...d } },
+                },
+          );
           return;
         }
         this.clones = [];

@@ -31,6 +31,8 @@ export function GameView({
   seed,
   rotateView,
   onRotateView,
+  showHints,
+  onShowHints,
   onNewSeed,
   onSameSeed,
   onExit,
@@ -39,6 +41,8 @@ export function GameView({
   seed: number;
   rotateView: boolean;
   onRotateView: (on: boolean) => void;
+  showHints: boolean;
+  onShowHints: (on: boolean) => void;
   onNewSeed: () => void;
   onSameSeed: () => void;
   onExit: () => void;
@@ -47,6 +51,7 @@ export function GameView({
   const engineRef = useRef<SimEngine | null>(null);
   const autopilotRef = useRef(false);
   const rotateViewRef = useRef(rotateView);
+  const showHintsRef = useRef(showHints);
   const viewRotRef = useRef(0);
   const [autopilot, setAutopilot] = useState(false);
   const [ui, setUi] = useState<Ui | null>(null);
@@ -54,6 +59,7 @@ export function GameView({
 
   autopilotRef.current = autopilot;
   rotateViewRef.current = rotateView;
+  showHintsRef.current = showHints;
 
   useEffect(() => {
     attachKeyboard();
@@ -100,7 +106,7 @@ export function GameView({
       const ctx = canvas.getContext('2d')!;
       ctx.save();
       ctx.scale(dpr, dpr);
-      draw(ctx, engine, cssSize, rot);
+      draw(ctx, engine, cssSize, rot, showHintsRef.current);
       ctx.restore();
 
       const cast = engine.castBar;
@@ -163,7 +169,7 @@ export function GameView({
           </span>
         </div>
 
-        <div className="hud-bottom">{ui?.hint}</div>
+        {showHints && <div className="hud-bottom">{ui?.hint}</div>}
         </div>
         <div className="side-col">
           <Legend />
@@ -190,6 +196,14 @@ export function GameView({
         <label>
           <input
             type="checkbox"
+            checked={showHints}
+            onChange={(e) => onShowHints(e.target.checked)}
+          />
+          hints (coaching text + bait marker)
+        </label>
+        <label>
+          <input
+            type="checkbox"
             checked={autopilot}
             onChange={(e) => setAutopilot(e.target.checked)}
           />
@@ -203,8 +217,7 @@ export function GameView({
           />
           rotate camera (towers always south)
         </label>
-        <span className="seed">seed {seed}</span>
-        <button onClick={onExit}>← change spot</button>
+        <button onClick={onExit}>restart</button>
       </div>
     </div>
   );

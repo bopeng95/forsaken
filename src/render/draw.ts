@@ -50,6 +50,7 @@ export function draw(
   eng: SimEngine,
   cssSize: number,
   viewRotRad = 0,
+  showHints = false,
 ): void {
   const k = cssSize / (2 * (R_ARENA + 2.5));
   const cx = cssSize / 2;
@@ -193,12 +194,6 @@ export function draw(
       ctx.strokeStyle = 'rgba(255,220,120,0.55)';
       ctx.lineWidth = 1.5;
       ctx.stroke();
-      // duo-soak pips
-      ctx.fillStyle = 'rgba(255,250,220,0.9)';
-      ctx.beginPath();
-      ctx.arc(x - 0.35 * k, y + R_TOWER * k * 0.55, 0.16 * k, 0, Math.PI * 2);
-      ctx.arc(x + 0.35 * k, y + R_TOWER * k * 0.55, 0.16 * k, 0, Math.PI * 2);
-      ctx.fill();
       void resolveT;
     }
     ctx.fillStyle = 'rgba(255,250,220,0.65)';
@@ -207,8 +202,8 @@ export function draw(
     ctx.fillText(`towers ${plan.setIdx}`, mid[0], mid[1]);
   }
 
-  // ---- bait marker
-  if (eng.baitMarker) {
+  // ---- bait marker (strat guidance — hidden unless hints are on)
+  if (eng.baitMarker && showHints) {
     const [x, y] = P(eng.baitMarker);
     const pulse = 1 + 0.12 * Math.sin(t * 6);
     ctx.beginPath();
