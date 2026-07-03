@@ -16,7 +16,7 @@ import {
 import type { Spot, Vec2 } from '../sim/types';
 import { SPOTS, roleOf } from '../sim/types';
 
-const ROLE_COLOR: Record<string, string> = {
+export const ROLE_COLOR: Record<string, string> = {
   T: '#5b8dd6',
   H: '#4fbf7f',
   M: '#d66a6a',
