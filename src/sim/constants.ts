@@ -1,51 +1,58 @@
 import type { Spot } from './types';
 
 // ---- World geometry (yalms). North = up, compass angles in degrees clockwise from N.
-// Measured from the analyzer.wtfdig.info log replay (arena rim = canvas edge,
-// scale anchored at R_ARENA = 20), cross-checked against the reference set
-// diagrams (SVG scale 0.07y/unit — boss rings and tower distance match exactly).
+// Measured from FFLogs report mvDy6P2xHjCdZptq (v2 API event coordinates,
+// arena center = map (100,100), Kefka fixed exactly there) plus the Action
+// sheet EffectRange values for the AoE sizes. The old diagram-derived layout
+// was uniformly inflated by 7/5; rescaling by 5/7 lands exactly on the
+// game-data numbers (towers 8.0y / r4, spread = stack = 5).
 export const R_ARENA = 20;
 /** Kefka's outer hitbox / target ring — clone baiters stand ON this. */
-export const R_OUTER_RING = 8.4;
-/** inner hitbox ring — even-set cone soakers stand just outside where towers cross it */
-export const R_INNER_RING = 7.0;
+export const R_OUTER_RING = 6.0;
+/** inner hitbox ring — even-set cone soakers stand ON it (observed 4.9–5.0y) */
+export const R_INNER_RING = 5.0;
 /**
  * bots path around this radius so they don't clip through the boss (not lethal
- * to the player). Must stay below the odd-set stack helpers at r≈5.4.
+ * to the player). Must stay below the odd-set stack helpers at r≈3.86.
  */
-export const R_DEADZONE = 4.8;
+export const R_DEADZONE = 3.4;
 
-export const TOWER_DIST = 11.2;
-/** towers sit at relative-south ± this (degrees) — ±45 measured from the log replay */
+/** every logged tower (94 casts, 11 pulls) sits at exactly 8.00y from center */
+export const TOWER_DIST = 8.0;
+/** towers sit at relative-south ± this (degrees) — pair is 90° apart in every log */
 export const TOWER_HALFSEP = 45;
-export const R_TOWER = 5.6;
+/** Action 47806 "the Path of Light": EffectRange 4 */
+export const R_TOWER = 4.0;
 
 /**
- * Waymarks (from the reference diagrams, 0.07y per SVG unit): letters A/B/C/D
- * on the cardinals at 16.8y; numbers 1/2/3/4 on the intercards at exactly
- * letters / sqrt2, so each number sits on the midpoint of the A-B-C-D square's
- * edge (the path A-2-B-3-C-4-D-1 traces that square). Keeping this relation
- * also keeps the even-set letter-mark cone bait nearest to its cone soaker.
+ * Waymarks (diagram layout rescaled ×5/7 — FFLogs doesn't expose waymark
+ * placement): letters A/B/C/D on the cardinals at 12y; numbers 1/2/3/4 on the
+ * intercards at exactly letters / sqrt2, so each number sits on the midpoint
+ * of the A-B-C-D square's edge (the path A-2-B-3-C-4-D-1 traces that square).
+ * Keeping this relation also keeps the even-set letter-mark cone bait nearest
+ * to its cone soaker (observed baiters stand at 9.8–10.8y).
  */
-export const WAYMARK_R = 16.8;
+export const WAYMARK_R = 12.0;
 export const WAYMARK_NUM_R = WAYMARK_R / Math.SQRT2;
 /** letter marks are circles of this radius (yalms) */
-export const WAYMARK_LETTER_R = 1.75;
+export const WAYMARK_LETTER_R = 1.25;
 /** number marks are world-axis-aligned squares of this half-side (yalms) */
-export const WAYMARK_NUM_HALF = 1.59;
+export const WAYMARK_NUM_HALF = 1.14;
 
-// ---- AoE sizes (reference diagrams: spread = stack = inner ring = 7.0)
-export const STACK_R = 7;
-export const SPREAD_R = 7;
+// ---- AoE sizes (Action sheet: Spellscatter/Spelldriver/F-P-End EffectRange 5)
+export const STACK_R = 5;
+export const SPREAD_R = 5;
 /**
  * clone spawn explosion (Future's/Past's End damage) — point-blank on each
  * baiter. Kept equal to SPREAD_R because the renderer draws all 'spread'
- * effects at SPREAD_R.
+ * effects at SPREAD_R (and the game value is also 5).
  */
 export const CLONE_SPREAD_R = SPREAD_R;
 export const CONE_HALF_DEG = 45;
-export const CONE_LEN = 22.4;
-export const MAX_MELEE = 12;
+/** Action 47810 "Spellwave": CastType 13 cone, EffectRange 40 (spans the arena) */
+export const CONE_LEN = 40;
+/** hitbox ring 6 + melee reach 3.5 — real bait stacks observed at 8.9–9.6y */
+export const MAX_MELEE = 9.5;
 
 // ---- Movement
 export const MOVE_SPEED = 6.0;
