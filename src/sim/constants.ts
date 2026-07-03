@@ -68,7 +68,13 @@ export const DASH_DURATION = 0.25;
 // soak (clones spawn on the 4 closest and explode), and the bait/lock/cleave
 // sequence overlaps the next odd set's telegraph, the cleave landing 0.3s
 // before its soak.
-export const SETUP_T = 3.5;
+/**
+ * Sim-only start buffer: delay from run start (t=0, icons already shown) to
+ * tower 1's telegraph spawning. Not a measured in-game timing — kept short so
+ * the first soak (SETUP_T + TELEGRAPH_T = 11s) matches the ~10–11s rhythm of
+ * every later set instead of the real fight's idle 13.2s lead-in.
+ */
+export const SETUP_T = 1.0;
 /** tower spawn -> soak resolution */
 export const TELEGRAPH_T = 10;
 /** even resolve -> bait call (everyone heads to the Past/Future stack) */

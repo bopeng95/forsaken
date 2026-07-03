@@ -1,18 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   attachKeyboard,
+  consumeChangeSpot,
   consumeDash,
   consumePause,
+  consumeReplay,
   consumeRestart,
   consumeSprint,
   inputVec,
 } from '../input/keyboard';
 import { Legend } from './Legend';
-import { draw } from '../render/draw';
+import { ROLE_COLOR, draw } from '../render/draw';
 import { SimEngine } from '../sim/engine';
 import { rollAttempt } from '../sim/randomizer';
 import type { Icon, Result, Spot } from '../sim/types';
-import { SPOTS } from '../sim/types';
+import { SPOTS, roleOf } from '../sim/types';
 
 interface Ui {
   hint: string;
@@ -34,13 +36,72 @@ interface Ui {
   result: Result | null;
 }
 
-const SPEEDS: Array<{ label: string; value: number }> = [
-  { label: 'Slow', value: 0.5 },
-  { label: 'Normal', value: 1 },
-  { label: 'Fast', value: 1.5 },
-];
-
 const ROT_SPEED = Math.PI; // rad/s camera swing toward the new set's frame
+
+/** Custom dropdown: native <select> popups ignore option colors, so the role dots need our own menu. */
+function FocusSelect({
+  spot,
+  focus,
+  onFocus,
+}: {
+  spot: Spot;
+  focus: Spot | null;
+  onFocus: (s: Spot | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener('pointerdown', onPointerDown);
+    return () => window.removeEventListener('pointerdown', onPointerDown);
+  }, [open]);
+
+  const pick = (s: Spot | null) => {
+    onFocus(s);
+    setOpen(false);
+  };
+
+  return (
+    <div className="focus-select" ref={rootRef}>
+      <button type="button" className="focus-btn" onClick={() => setOpen((o) => !o)}>
+        {focus ? (
+          <>
+            <span className="focus-dot" style={{ background: ROLE_COLOR[roleOf(focus)] }} />
+            {focus}
+          </>
+        ) : (
+          'everyone'
+        )}
+      </button>
+      {open && (
+        <div className="focus-menu">
+          <button
+            type="button"
+            className={`focus-option${focus === null ? ' selected' : ''}`}
+            onClick={() => pick(null)}
+          >
+            everyone
+          </button>
+          {SPOTS.filter((s) => s !== spot).map((s) => (
+            <button
+              type="button"
+              key={s}
+              className={`focus-option${focus === s ? ' selected' : ''}`}
+              onClick={() => pick(s)}
+            >
+              <span className="focus-dot" style={{ background: ROLE_COLOR[roleOf(s)] }} />
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function GameView({
   spot,
@@ -80,6 +141,8 @@ export function GameView({
   const focusRef = useRef(focus);
   const pausedRef = useRef(true);
   const onExitRef = useRef(onExit);
+  const onNewSeedRef = useRef(onNewSeed);
+  const onSameSeedRef = useRef(onSameSeed);
   const viewRotRef = useRef(0);
   const [autopilot, setAutopilot] = useState(false);
   const [paused, setPaused] = useState(true);
@@ -93,6 +156,8 @@ export function GameView({
   focusRef.current = focus;
   pausedRef.current = paused;
   onExitRef.current = onExit;
+  onNewSeedRef.current = onNewSeed;
+  onSameSeedRef.current = onSameSeed;
 
   useEffect(() => {
     attachKeyboard();
@@ -108,6 +173,16 @@ export function GameView({
       last = now;
 
       if (consumeRestart()) {
+        onNewSeedRef.current(); // remount cancels this rAF loop
+        return;
+      }
+
+      if (consumeReplay()) {
+        onSameSeedRef.current(); // remount cancels this rAF loop
+        return;
+      }
+
+      if (consumeChangeSpot()) {
         onExitRef.current(); // unmount cancels this rAF loop
         return;
       }
@@ -194,13 +269,6 @@ export function GameView({
           <div className={`result-banner ${ui.result.kind}`}>
             <strong>{ui.result.kind === 'clear' ? 'Forsaken resolved!' : 'Wipe'}</strong>
             {ui.result.kind === 'fail' && <span className="reason">{ui.result.reason}</span>}
-            <div className="buttons">
-              <button className="primary" onClick={onNewSeed}>
-                Try Again
-              </button>
-              <button onClick={onSameSeed}>Retry Same Pattern</button>
-              <button onClick={onExit}>Change Spot</button>
-            </div>
           </div>
         )}
 
@@ -245,32 +313,22 @@ export function GameView({
             >
               {paused ? (ui?.started ? 'Resume' : 'Start') : 'Pause'} <kbd>Space</kbd>
             </button>
-            <div className="controls-row">
-              <span>Speed</span>
-              {SPEEDS.map((o) => (
-                <button
-                  key={o.label}
-                  className={`toggle${speed === o.value ? ' active' : ''}`}
-                  onClick={() => onSpeed(o.value)}
-                >
-                  {o.label}
-                </button>
-              ))}
-            </div>
             <label className="controls-row">
-              <span>Focus</span>
-              <select
-                value={focus ?? ''}
-                onChange={(e) => onFocus(e.target.value === '' ? null : (e.target.value as Spot))}
-              >
-                <option value="">everyone</option>
-                {SPOTS.filter((s) => s !== spot).map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+              <span>Speed</span>
+              <input
+                type="range"
+                min={1}
+                max={2}
+                step={0.2}
+                value={speed}
+                onChange={(e) => onSpeed(Number(e.target.value))}
+              />
+              <span className="speed-val">{speed.toFixed(1)}×</span>
             </label>
+            <div className="controls-row">
+              <span>Focus</span>
+              <FocusSelect spot={spot} focus={focus} onFocus={onFocus} />
+            </div>
             <label className="controls-check">
               <input
                 type="checkbox"
@@ -295,8 +353,14 @@ export function GameView({
               />
               rotate towers south
             </label>
-            <button className="panel-btn" onClick={onExit}>
+            <button className="panel-btn" onClick={onNewSeed}>
               Restart <kbd>R</kbd>
+            </button>
+            <button className="panel-btn" onClick={onSameSeed}>
+              Replay Pattern <kbd>T</kbd>
+            </button>
+            <button className="panel-btn" onClick={onExit}>
+              Change Role <kbd>C</kbd>
             </button>
           </div>
         </div>
