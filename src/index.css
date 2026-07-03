@@ -267,15 +267,87 @@ button.primary {
   font-size: 11px;
 }
 
-.controls-row select {
+.controls-row input[type='range'] {
   flex: 1;
+  min-width: 0;
+  accent-color: #6b4fd8;
+}
+
+.speed-val {
+  width: 32px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #d8d4e4;
+  text-align: right;
+}
+
+.focus-select {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.focus-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font: inherit;
   font-size: 12px;
-  background: #262433;
+  background-color: #262433;
   color: #d8d4e4;
   border: 1px solid #3d3a4f;
   border-radius: 8px;
+  padding: 5px 26px 5px 8px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238f87ab' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  cursor: pointer;
+}
+
+.focus-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 10;
+  background: #1d1a29;
+  border: 1px solid #3d3a4f;
+  border-radius: 8px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.focus-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font: inherit;
+  font-size: 12px;
+  color: #d8d4e4;
+  background: none;
+  border: none;
+  border-radius: 6px;
   padding: 5px 8px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.focus-option:hover {
+  background: #2e2a40;
+}
+
+.focus-option.selected {
+  background: #34304a;
+}
+
+.focus-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .controls-check {
@@ -457,13 +529,5 @@ canvas.arena {
   color: #cfc8e0;
   line-height: 1.35;
   font-size: 14px;
-}
-
-.buttons {
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-  flex-wrap: wrap;
-  white-space: nowrap;
 }
 
