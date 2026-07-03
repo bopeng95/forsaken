@@ -55,29 +55,30 @@ export interface SetPlan {
   dodgePos?: Vec2;
 }
 
-// ---- Local-polar spot tables (deg, yalms), towers at local 225/135, r 11.2, radius 5.5.
-// Values measured from the analyzer.wtfdig.info log replay where visible,
-// by construction otherwise.
+// ---- Local-polar spot tables (deg, yalms), towers at local 225/135, r 8.0, radius 4.
+// The old analyzer-derived table rescaled ×5/7 onto the true FFLogs geometry;
+// every radius below matches the observed player positions in report
+// mvDy6P2xHjCdZptq to within ~1y.
 const ODD = {
   L_STACK: [225, R_OUTER_RING] as const, // stack on the boss hitbox ring, inside left tower
-  L_CONE: [227, 13.7] as const, // in the tower, ~5.3y outside the stack holder (still in the 6y stack)
-  // boss-side sliver: in stack radius but OUTSIDE the tower circle (11.2 - 5.4 = 5.8 > 5.5)
-  L_HELP_T: [225, 5.4] as const,
-  // idle healer: straight out behind the tower — outside the tower circle (5.9y
-  // from its center) yet nearer to L_CONE (3.4y) than the stack holder (5.3y),
+  L_CONE: [227, 9.8] as const, // in the tower, ~3.8y outside the stack holder (still in the 5y stack)
+  // boss-side sliver: in stack radius but OUTSIDE the tower circle (8 - 3.86 = 4.14 > 4)
+  L_HELP_T: [225, 3.86] as const,
+  // idle healer: straight out behind the tower — outside the tower circle (4.2y
+  // from its center) yet nearer to L_CONE (2.4y) than the stack holder (3.8y),
   // so the cone fires outward at the healer
-  L_BAIT_H: [227, 17.1] as const,
-  R_STACK: [135, 8.2] as const, // front of right tower, toward "new north"
-  R_SPREAD: [141, 15.5] as const, // south side, in tower, >6y out of the stack (7.4y)
-  R_HELP_M: [131, 5.4] as const, // idle melee: boss-side sliver, in right stack
-  R_HELP_R: [139, 5.4] as const, // idle ranged: boss-side sliver, in right stack
+  L_BAIT_H: [227, 12.2] as const,
+  R_STACK: [135, 5.86] as const, // front of right tower, toward "new north"
+  R_SPREAD: [141, 11.07] as const, // south side, in tower, >5y out of the stack (5.3y)
+  R_HELP_M: [131, 3.86] as const, // idle melee: boss-side sliver, in right stack
+  R_HELP_R: [139, 3.86] as const, // idle ranged: boss-side sliver, in right stack
 };
 
 const EVEN = {
-  L_CONE: [245, 7.3] as const, // inner ring inside the tower, marker side
-  R_CONE: [115, 7.3] as const,
-  L_SPREAD: [213, 15.2] as const, // south of the tower, inside it
-  R_SPREAD: [147, 15.2] as const,
+  L_CONE: [245, 5.21] as const, // inner ring inside the tower, marker side
+  R_CONE: [115, 5.21] as const,
+  L_SPREAD: [213, 10.86] as const, // south of the tower, inside it
+  R_SPREAD: [147, 10.86] as const,
   CLONE_NW: [315, R_OUTER_RING] as const, // idle tank on OUTER ring, relative NW
   CLONE_NE: [45, R_OUTER_RING] as const, // idle melee on OUTER ring, relative NE
 };
@@ -112,14 +113,14 @@ export function towerCenters(southDeg: number): { left: Vec2; right: Vec2 } {
  * 2s south row.
  */
 export const SETUP_POS: Record<Spot, Vec2> = {
-  H1: { x: -11, y: -3.2 },
-  T1: { x: -6.5, y: -3.2 },
-  H2: { x: -11, y: 3.5 },
-  T2: { x: -6.5, y: 3.5 },
-  M1: { x: 6.5, y: -3.2 },
-  R1: { x: 11, y: -3.2 },
-  M2: { x: 6.5, y: 3.5 },
-  R2: { x: 11, y: 3.5 },
+  H1: { x: -7.9, y: -2.3 },
+  T1: { x: -4.6, y: -2.3 },
+  H2: { x: -7.9, y: 2.5 },
+  T2: { x: -4.6, y: 2.5 },
+  M1: { x: 4.6, y: -2.3 },
+  R1: { x: 7.9, y: -2.3 },
+  M2: { x: 4.6, y: 2.5 },
+  R2: { x: 7.9, y: 2.5 },
 };
 
 function byPrio(spots: Spot[]): Spot[] {

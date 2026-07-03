@@ -60,14 +60,12 @@ export function rollAttempt(seed: number): AttemptScript {
     assign(A, ODD_REROLL), // set 8: rerolled after odd set 3 (the "remember" debuff)
   ];
 
-  // Tower pair orientation per set: first is always true south (like every diagram),
-  // the rest hop to a random different 45° step each set.
-  const southDeg: number[] = [180];
-  for (let i = 1; i < 8; i++) {
-    let d = randInt(rng, 8) * 45;
-    if (d === southDeg[i - 1]) d = (d + 45 * (1 + randInt(rng, 7))) % 360;
-    southDeg.push(d);
-  }
+  // Tower pair orientation: a random starting azimuth, then exactly 45° per set
+  // in one fixed direction for the whole mechanic (every logged pull in FFLogs
+  // report mvDy6P2xHjCdZptq rotates this way — never an independent roll).
+  const start = randInt(rng, 8) * 45;
+  const dir = rng() < 0.5 ? 45 : -45;
+  const southDeg = Array.from({ length: 8 }, (_, i) => (((start + i * dir) % 360) + 360) % 360);
 
   const future = [rng() < 0.5, rng() < 0.5, rng() < 0.5, rng() < 0.5];
 
