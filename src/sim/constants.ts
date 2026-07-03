@@ -92,6 +92,8 @@ export const FP_CAST_DELAY = 2.3;
  * 257.8 - 249.1), 1.3s before the even soak — the clone snapshot + explosion.
  */
 export const FP_CAST = 6.4;
+/** how long a (re)assigned Spell's Trouble icon stays visible (unless "display debuff indefinitely" is on) */
+export const ICON_SHOW_T = 5.0;
 
 // The odd towers spawn at the bait call and resolve CLEAVE_TO_SOAK after the
 // cleave — consistent with the 10s telegraph by construction:
