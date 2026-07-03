@@ -98,7 +98,11 @@ if (FP_CAST_DELAY + FP_CAST >= TELEGRAPH_T) {
   throw new Error("Future's/Past's End must resolve before the even towers");
 }
 
-export const BAIT_TOL = 4.5;
+/**
+ * If the user is closer than this to the arena center at the cleave lock, their
+ * position can't define a diameter — fall back to the ideal frame direction.
+ */
+export const BAIT_CENTER_EPS = 1;
 
 /**
  * Tower flex priority for duplicate debuffs, leftmost entry takes the LEFT tower.
