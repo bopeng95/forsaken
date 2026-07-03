@@ -48,7 +48,7 @@ export function Legend() {
       </Item>
 
       <h3>On the field</h3>
-      <Item name="Tower" desc="Duo tower — exactly 2 players inside when it resolves.">
+      <Item name="Tower" desc="Duo tower.">
         <circle
           cx="14"
           cy="14"
@@ -57,13 +57,8 @@ export function Legend() {
           stroke="rgba(255,250,220,0.9)"
           strokeWidth="2.5"
         />
-        <circle cx="11.5" cy="18" r="1.4" fill="rgba(255,250,220,0.9)" />
-        <circle cx="16.5" cy="18" r="1.4" fill="rgba(255,250,220,0.9)" />
       </Item>
-      <Item
-        name="Clone"
-        desc="Kefka clone — its aim line tracks the party, locks red at All Things Ending, then it cleaves that half of the arena."
-      >
+      <Item name="Clone" desc="Kefka clone — only targets YOU; the bots are always in position.">
         <circle
           cx="14"
           cy="14"
@@ -82,9 +77,6 @@ export function Legend() {
         >
           K
         </text>
-      </Item>
-      <Item name="Stack point" desc="Party stack spot for Future's/Past's End.">
-        <circle cx="14" cy="14" r="9" fill="none" stroke="rgba(255,220,90,0.9)" strokeWidth="2.5" />
       </Item>
 
       <p className="legend-note">
