@@ -1,15 +1,12 @@
 import type { ReactNode } from 'react';
 
-function Item({ name, desc, children }: { name: string; desc: string; children: ReactNode }) {
+function Item({ name, children }: { name: string; children: ReactNode }) {
   return (
     <div className="legend-item">
       <svg width="30" height="30" viewBox="0 0 28 28" aria-hidden="true">
         {children}
       </svg>
-      <div>
-        <span className="name">{name}</span>
-        <span className="desc">{desc}</span>
-      </div>
+      <span className="name">{name}</span>
     </div>
   );
 }
@@ -18,14 +15,14 @@ export function Legend() {
   return (
     <aside className="legend">
       <h3>Debuff icons</h3>
-      <Item name="Cone" desc="Conal AoE fired from you at the nearest other player.">
+      <Item name="Cone">
         <path d="M14 23 L5.1 8.5 A17 17 0 0 1 22.9 8.5 Z" fill="#e05252" />
       </Item>
-      <Item name="Spread" desc="Point-blank circle on you — stay clear of others.">
+      <Item name="Spread">
         <circle cx="14" cy="14" r="8" fill="none" stroke="#e0a052" strokeWidth="3" />
         <circle cx="14" cy="14" r="2.5" fill="#e0a052" />
       </Item>
-      <Item name="Stack" desc="3-player shared stack centered on you.">
+      <Item name="Stack">
         <g
           fill="none"
           stroke="#6ee08c"
@@ -38,7 +35,7 @@ export function Legend() {
           <path d="M5.6 14.5 L11.7 15.3 L9.4 21" />
         </g>
       </Item>
-      <Item name="Charges" desc="Spell's Trouble left — soaking a tower spends one and rerolls your icon.">
+      <Item name="Tower charges">
         <g fill="#c390f0">
           <rect x="3" y="11" width="5" height="5" transform="rotate(45 5.5 13.5)" />
           <rect x="9" y="11" width="5" height="5" transform="rotate(45 11.5 13.5)" />
@@ -48,7 +45,7 @@ export function Legend() {
       </Item>
 
       <h3>On the field</h3>
-      <Item name="Tower" desc="Duo tower.">
+      <Item name="Tower">
         <circle
           cx="14"
           cy="14"
@@ -58,7 +55,7 @@ export function Legend() {
           strokeWidth="2.5"
         />
       </Item>
-      <Item name="Clone" desc="Kefka clone — only targets YOU; the bots are always in position.">
+      <Item name="Kefka clone">
         <circle
           cx="14"
           cy="14"
@@ -78,11 +75,6 @@ export function Legend() {
           K
         </text>
       </Item>
-
-      <p className="legend-note">
-        Dashed ring = inner hitbox (walkable, used to place cone soaks). Solid ring = outer hitbox
-        where clone baiters stand.
-      </p>
     </aside>
   );
 }
