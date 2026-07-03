@@ -15,6 +15,8 @@ export default function App() {
   const [run, setRun] = useState(0);
   const [rotateView, setRotateView] = useState(false);
   const [showHints, setShowHints] = useState(false);
+  const [speed, setSpeed] = useState(1);
+  const [focus, setFocus] = useState<Spot | null>(null);
 
   if (!spot) {
     return (
@@ -24,6 +26,7 @@ export default function App() {
         onStart={(s, p) => {
           setPrefs(p);
           setSeed(findSeed(s, p, randomSeed));
+          setFocus(null);
           setSpot(s);
         }}
       />
@@ -39,6 +42,10 @@ export default function App() {
       onRotateView={setRotateView}
       showHints={showHints}
       onShowHints={setShowHints}
+      speed={speed}
+      onSpeed={setSpeed}
+      focus={focus}
+      onFocus={setFocus}
       onNewSeed={() => {
         setSeed(findSeed(spot, prefs, randomSeed));
         setRun((r) => r + 1);
