@@ -89,6 +89,9 @@ export class SimEngine {
   /** unit vector toward the locked bait (danger half), set at lock */
   cleaveDir: Vec2 | null = null;
   baitMarker: Vec2 | null = null;
+  /** sim times of the last bait call / cleave lock (for the blind-bait fade) */
+  baitStartT: number | null = null;
+  baitEndT: number | null = null;
   /** last set that spawned (for HUD progress) */
   currentSet = 0;
 
@@ -312,6 +315,7 @@ export class SimEngine {
       }
       case 'bait': {
         this.baitMarker = plan.baitPos!;
+        this.baitStartT = ev.t;
         for (const s of SPOTS) this.targets[s] = plan.baitPos!;
         this.hint = plan.future
           ? "FUTURE'S END — everyone stack max melee OPPOSITE the new towers"
@@ -345,6 +349,7 @@ export class SimEngine {
               ? { x: u.x / r, y: u.y / r }
               : { x: -u.x / r, y: -u.y / r };
         this.baitMarker = null;
+        this.baitEndT = ev.t;
         const next = ev.set < 8 ? this.plans[ev.set] : null;
         for (const s of SPOTS) this.targets[s] = next ? next.duties[s].pos : plan.dodgePos!;
         this.hint = plan.future

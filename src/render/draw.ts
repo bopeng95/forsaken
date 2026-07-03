@@ -16,6 +16,9 @@ import {
 import type { Spot, Vec2 } from '../sim/types';
 import { SPOTS, roleOf } from '../sim/types';
 
+/** seconds for bots to fade out/in around the blind-bait window */
+const BAIT_FADE_T = 0.25;
+
 export const ROLE_COLOR: Record<string, string> = {
   T: '#5b8dd6',
   H: '#4fbf7f',
@@ -52,6 +55,7 @@ export function draw(
   viewRotRad = 0,
   showHints = false,
   focus: Spot | null = null,
+  blindBait = false,
 ): void {
   const k = cssSize / (2 * (R_ARENA + 2.5));
   const cx = cssSize / 2;
@@ -200,7 +204,7 @@ export function draw(
   }
 
   // ---- bait marker (strat guidance — hidden unless hints are on)
-  if (eng.baitMarker && showHints) {
+  if (eng.baitMarker && showHints && !blindBait) {
     const [x, y] = P(eng.baitMarker);
     const pulse = 1 + 0.12 * Math.sin(t * 6);
     ctx.beginPath();
@@ -286,8 +290,22 @@ export function draw(
   }
 
   // ---- players
+  // blind bait: bots fade out for the whole bait window (they still walk to the
+  // bait spot unseen, so they fade back in already stacked there at the lock)
+  let botAlpha = 1;
+  if (blindBait) {
+    if (eng.baitMarker && eng.baitStartT !== null) {
+      botAlpha = Math.max(0, 1 - (eng.t - eng.baitStartT) / BAIT_FADE_T);
+    } else if (eng.baitEndT !== null) {
+      botAlpha = Math.min(1, (eng.t - eng.baitEndT) / BAIT_FADE_T);
+    }
+  }
   for (const s of SPOTS) {
-    drawPlayer(ctx, eng, s, P, k, s === eng.userSpot, focus);
+    const isUser = s === eng.userSpot;
+    if (!isUser && botAlpha <= 0) continue;
+    if (!isUser && botAlpha < 1) ctx.globalAlpha = botAlpha;
+    drawPlayer(ctx, eng, s, P, k, isUser, focus);
+    ctx.globalAlpha = 1;
   }
 
   // ---- fail marks
