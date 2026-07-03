@@ -13,7 +13,7 @@ export default function App() {
   const [prefs, setPrefs] = useState<StartPrefs>({ group: 'any', icon: 'any' });
   const [seed, setSeed] = useState(0);
   const [run, setRun] = useState(0);
-  const [rotateView, setRotateView] = useState(true);
+  const [rotateView, setRotateView] = useState(false);
 
   if (!spot) {
     return (
