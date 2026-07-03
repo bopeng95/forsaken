@@ -1,10 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
-import { attachKeyboard, consumeDash, consumeSprint, inputVec } from '../input/keyboard';
+import {
+  attachKeyboard,
+  consumeDash,
+  consumePause,
+  consumeRestart,
+  consumeSprint,
+  inputVec,
+} from '../input/keyboard';
 import { Legend } from './Legend';
 import { draw } from '../render/draw';
 import { SimEngine } from '../sim/engine';
 import { rollAttempt } from '../sim/randomizer';
 import type { Icon, Result, Spot } from '../sim/types';
+import { SPOTS } from '../sim/types';
 
 interface Ui {
   hint: string;
@@ -21,8 +29,16 @@ interface Ui {
   dashCharges: number;
   /** whole seconds until the next dash charge (0 = full) */
   dashCd: number;
+  /** sim clock has advanced past 0 (Start vs Resume label) */
+  started: boolean;
   result: Result | null;
 }
+
+const SPEEDS: Array<{ label: string; value: number }> = [
+  { label: 'Slow', value: 0.5 },
+  { label: 'Normal', value: 1 },
+  { label: 'Fast', value: 1.5 },
+];
 
 const ROT_SPEED = Math.PI; // rad/s camera swing toward the new set's frame
 
@@ -33,6 +49,10 @@ export function GameView({
   onRotateView,
   showHints,
   onShowHints,
+  speed,
+  onSpeed,
+  focus,
+  onFocus,
   onNewSeed,
   onSameSeed,
   onExit,
@@ -43,6 +63,10 @@ export function GameView({
   onRotateView: (on: boolean) => void;
   showHints: boolean;
   onShowHints: (on: boolean) => void;
+  speed: number;
+  onSpeed: (x: number) => void;
+  focus: Spot | null;
+  onFocus: (s: Spot | null) => void;
   onNewSeed: () => void;
   onSameSeed: () => void;
   onExit: () => void;
@@ -52,14 +76,23 @@ export function GameView({
   const autopilotRef = useRef(false);
   const rotateViewRef = useRef(rotateView);
   const showHintsRef = useRef(showHints);
+  const speedRef = useRef(speed);
+  const focusRef = useRef(focus);
+  const pausedRef = useRef(true);
+  const onExitRef = useRef(onExit);
   const viewRotRef = useRef(0);
   const [autopilot, setAutopilot] = useState(false);
+  const [paused, setPaused] = useState(true);
   const [ui, setUi] = useState<Ui | null>(null);
   const uiJson = useRef('');
 
   autopilotRef.current = autopilot;
   rotateViewRef.current = rotateView;
   showHintsRef.current = showHints;
+  speedRef.current = speed;
+  focusRef.current = focus;
+  pausedRef.current = paused;
+  onExitRef.current = onExit;
 
   useEffect(() => {
     attachKeyboard();
@@ -73,6 +106,16 @@ export function GameView({
     const frame = (now: number) => {
       const dt = (now - last) / 1000;
       last = now;
+
+      if (consumeRestart()) {
+        onExitRef.current(); // unmount cancels this rAF loop
+        return;
+      }
+
+      if (consumePause() && !engine.result) {
+        pausedRef.current = !pausedRef.current;
+        setPaused(pausedRef.current);
+      }
 
       // ease the camera toward the current set's frame (towers at screen-south)
       const target =
@@ -89,13 +132,17 @@ export function GameView({
       const v = inputVec();
       const rc = Math.cos(-rot);
       const rs = Math.sin(-rot);
-      engine.update(
-        dt,
-        { x: v.x * rc - v.y * rs, y: v.x * rs + v.y * rc },
-        autopilotRef.current,
-        consumeSprint(),
-        consumeDash(),
-      );
+      const sprintPressed = consumeSprint(); // consume even while paused so queued
+      const dashPressed = consumeDash(); // presses don't fire on resume
+      if (!pausedRef.current) {
+        engine.update(
+          dt * speedRef.current,
+          { x: v.x * rc - v.y * rs, y: v.x * rs + v.y * rc },
+          autopilotRef.current,
+          sprintPressed,
+          dashPressed,
+        );
+      }
 
       const cssSize = canvas.clientWidth;
       const dpr = window.devicePixelRatio || 1;
@@ -106,7 +153,7 @@ export function GameView({
       const ctx = canvas.getContext('2d')!;
       ctx.save();
       ctx.scale(dpr, dpr);
-      draw(ctx, engine, cssSize, rot, showHintsRef.current);
+      draw(ctx, engine, cssSize, rot, showHintsRef.current, focusRef.current);
       ctx.restore();
 
       const cast = engine.castBar;
@@ -123,6 +170,7 @@ export function GameView({
         sprintCd: Math.ceil(sprint.cooldownLeft),
         dashCharges: dash.charges,
         dashCd: Math.ceil(dash.rechargeLeft),
+        started: engine.t > 0,
         result: engine.result,
       };
       const json = JSON.stringify(snapshot);
@@ -189,35 +237,69 @@ export function GameView({
                 : `Dash ${pips} — next in ${ui!.dashCd}s`;
             })()}
           </div>
+          <div className="controls-panel">
+            <button
+              className={`panel-btn${paused ? ' primary' : ''}`}
+              disabled={!!ui?.result}
+              onClick={() => setPaused((p) => !p)}
+            >
+              {paused ? (ui?.started ? 'Resume' : 'Start') : 'Pause'} <kbd>Space</kbd>
+            </button>
+            <div className="controls-row">
+              <span>Speed</span>
+              {SPEEDS.map((o) => (
+                <button
+                  key={o.label}
+                  className={`toggle${speed === o.value ? ' active' : ''}`}
+                  onClick={() => onSpeed(o.value)}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            <label className="controls-row">
+              <span>Focus</span>
+              <select
+                value={focus ?? ''}
+                onChange={(e) => onFocus(e.target.value === '' ? null : (e.target.value as Spot))}
+              >
+                <option value="">everyone</option>
+                {SPOTS.filter((s) => s !== spot).map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="controls-check">
+              <input
+                type="checkbox"
+                checked={showHints}
+                onChange={(e) => onShowHints(e.target.checked)}
+              />
+              hints
+            </label>
+            <label className="controls-check">
+              <input
+                type="checkbox"
+                checked={autopilot}
+                onChange={(e) => setAutopilot(e.target.checked)}
+              />
+              autopilot (bot plays your role)
+            </label>
+            <label className="controls-check">
+              <input
+                type="checkbox"
+                checked={rotateView}
+                onChange={(e) => onRotateView(e.target.checked)}
+              />
+              rotate towers south
+            </label>
+            <button className="panel-btn" onClick={onExit}>
+              Restart <kbd>R</kbd>
+            </button>
+          </div>
         </div>
-      </div>
-
-      <div className="toolbar">
-        <label>
-          <input
-            type="checkbox"
-            checked={showHints}
-            onChange={(e) => onShowHints(e.target.checked)}
-          />
-          hints (coaching text + bait marker)
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={autopilot}
-            onChange={(e) => setAutopilot(e.target.checked)}
-          />
-          autopilot (watch a bot play your spot)
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={rotateView}
-            onChange={(e) => onRotateView(e.target.checked)}
-          />
-          rotate camera (towers always south)
-        </label>
-        <button onClick={onExit}>restart</button>
       </div>
     </div>
   );

@@ -16,6 +16,8 @@ const KEYS = new Set([
 
 let sprintQueued = false;
 let dashQueued = false;
+let pauseQueued = false;
+let restartQueued = false;
 
 export function attachKeyboard(): void {
   if (attached) return;
@@ -28,6 +30,11 @@ export function attachKeyboard(): void {
       sprintQueued = true;
     } else if ((e.code === 'Digit1' || e.code === 'Numpad1') && !e.repeat) {
       dashQueued = true;
+    } else if (e.code === 'Space') {
+      if (!e.repeat) pauseQueued = true;
+      e.preventDefault();
+    } else if (e.code === 'KeyR' && !e.repeat) {
+      restartQueued = true;
     }
   });
   window.addEventListener('keyup', (e) => pressed.delete(e.code));
@@ -45,6 +52,20 @@ export function consumeSprint(): boolean {
 export function consumeDash(): boolean {
   const q = dashQueued;
   dashQueued = false;
+  return q;
+}
+
+/** returns true once per Space press (queued so a press between frames isn't lost) */
+export function consumePause(): boolean {
+  const q = pauseQueued;
+  pauseQueued = false;
+  return q;
+}
+
+/** returns true once per press of R (queued so a press between frames isn't lost) */
+export function consumeRestart(): boolean {
+  const q = restartQueued;
+  restartQueued = false;
   return q;
 }
 

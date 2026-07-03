@@ -51,6 +51,7 @@ export function draw(
   cssSize: number,
   viewRotRad = 0,
   showHints = false,
+  focus: Spot | null = null,
 ): void {
   const k = cssSize / (2 * (R_ARENA + 2.5));
   const cx = cssSize / 2;
@@ -196,10 +197,6 @@ export function draw(
       ctx.stroke();
       void resolveT;
     }
-    ctx.fillStyle = 'rgba(255,250,220,0.65)';
-    ctx.font = `600 ${0.85 * k}px system-ui, sans-serif`;
-    const mid = P(compass(plan.southDeg, TOWER_LABEL_R));
-    ctx.fillText(`towers ${plan.setIdx}`, mid[0], mid[1]);
   }
 
   // ---- bait marker (strat guidance — hidden unless hints are on)
@@ -290,7 +287,7 @@ export function draw(
 
   // ---- players
   for (const s of SPOTS) {
-    drawPlayer(ctx, eng, s, P, k, s === eng.userSpot);
+    drawPlayer(ctx, eng, s, P, k, s === eng.userSpot, focus);
   }
 
   // ---- fail marks
@@ -387,8 +384,6 @@ export function draw(
   }
 }
 
-const TOWER_LABEL_R = R_ARENA - 1.5;
-
 function drawPlayer(
   ctx: CanvasRenderingContext2D,
   eng: SimEngine,
@@ -396,6 +391,7 @@ function drawPlayer(
   P: (p: Vec2) => [number, number],
   k: number,
   isUser: boolean,
+  focus: Spot | null,
 ): void {
   const [x, y] = P(eng.positions[s]);
   const color = ROLE_COLOR[roleOf(s)];
@@ -413,8 +409,8 @@ function drawPlayer(
   ctx.textAlign = 'center';
   ctx.fillText(s, x, y);
 
-  // debuff icon above head
-  const icon = eng.icons[s];
+  // debuff icon above head (focus mode hides every icon except the user's and the focused bot's)
+  const icon = focus === null || s === focus || isUser ? eng.icons[s] : null;
   const iy = y - 1.9 * k;
   if (icon === 'cone') {
     ctx.beginPath();
