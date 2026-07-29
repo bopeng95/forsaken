@@ -1,4 +1,6 @@
 /* Debug one seed: dump plan + positions at each resolve. SEED=49 npx tsx scripts/debug.ts */
+import { stepToward } from '../src/sim/bots';
+import { BOT_SPEED } from '../src/sim/constants';
 import { SimEngine } from '../src/sim/engine';
 import { rollAttempt } from '../src/sim/randomizer';
 import { SPOTS } from '../src/sim/types';
@@ -16,7 +18,9 @@ const dt = 1 / 60;
 let lastSet = 0;
 let lastHint = '';
 while (!eng.result && eng.t < 240) {
-  eng.update(dt, { x: 0, y: 0 }, true);
+  // autopilot: walk the user's spot exactly like a bot, then tick the sim
+  eng.positions['T1'] = stepToward(eng.positions['T1'], eng.targets['T1'], BOT_SPEED * dt);
+  eng.update(dt, { x: 0, y: 0 });
   if (eng.currentSet !== lastSet && eng.activeTowers) {
     lastSet = eng.currentSet;
     const p = eng.activeTowers.plan;

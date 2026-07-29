@@ -5,6 +5,8 @@
  *
  *   npm run verify
  */
+import { stepToward } from '../src/sim/bots';
+import { BOT_SPEED } from '../src/sim/constants';
 import { SimEngine } from '../src/sim/engine';
 import { rollAttempt } from '../src/sim/randomizer';
 import { SPOTS } from '../src/sim/types';
@@ -23,7 +25,9 @@ for (let seed = 1; seed <= SEEDS; seed++) {
     const eng = new SimEngine(script, spot);
     let ticks = 0;
     while (!eng.result && ticks++ < MAX_TICKS) {
-      eng.update(DT, { x: 0, y: 0 }, true);
+      // autopilot: walk the user's spot exactly like a bot, then tick the sim
+      eng.positions[spot] = stepToward(eng.positions[spot], eng.targets[spot], BOT_SPEED * DT);
+      eng.update(DT, { x: 0, y: 0 });
     }
     if (!eng.result) {
       failures++;
