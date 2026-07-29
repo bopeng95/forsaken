@@ -1,33 +1,28 @@
-import { SETUP_POS, buildSetPlan, lp, type SetPlan } from './assignments';
-import { clampToArena, dist, stepToward } from './bots';
+import type { CastBar } from '../core/engine';
+import { BaseEngine } from '../core/engine';
+import { dist } from '../core/motion';
+import type { FailZone, Spot, Vec2 } from '../core/types';
+import { SPOTS } from '../core/types';
+import { SETUP_POS, buildSetPlan, type SetPlan } from './assignments';
+import { lp } from '../core/motion';
 import {
   ATE_CAST,
   BAIT_CENTER_EPS,
   BAIT_DELAY,
   BAIT_WINDOW,
-  BOT_SPEED,
   CLEAVE_TO_SOAK,
   CLONE_SPREAD_R,
   CONE_HALF_DEG,
   CONE_LEN,
-  DASH_CHARGES,
-  DASH_DIST,
-  DASH_DURATION,
-  DASH_RECHARGE,
   FP_CAST,
   FP_CAST_DELAY,
-  MOVE_SPEED,
   R_TOWER,
   SETUP_T,
   SPREAD_R,
-  SPRINT_COOLDOWN,
-  SPRINT_DURATION,
-  SPRINT_SPEED,
   STACK_R,
   TELEGRAPH_T,
 } from './constants';
-import type { AttemptScript, FailInfo, FailZone, Icon, Result, Spot, Vec2 } from './types';
-import { SPOTS } from './types';
+import type { AttemptScript, Icon } from './types';
 
 type EventKind = 'spawn' | 'resolve' | 'snapshot' | 'bait' | 'lock' | 'cleave' | 'clear';
 
@@ -35,12 +30,6 @@ interface TimelineEvent {
   t: number;
   kind: EventKind;
   set: number;
-}
-
-interface CastSeg {
-  t0: number;
-  t1: number;
-  label: string;
 }
 
 export interface VisualEffect {
@@ -69,20 +58,15 @@ const NEXT_SOAK: Record<number, number | null> = {
   8: null,
 };
 
-export class SimEngine {
+export class SimEngine extends BaseEngine<TimelineEvent> {
+  readonly mechanicId = 'forsaken' as const;
   readonly script: AttemptScript;
-  readonly userSpot: Spot;
   readonly plans: SetPlan[];
 
-  t = 0;
-  positions: Record<Spot, Vec2>;
   icons: Record<Spot, Icon | null>;
   /** sim time each spot's current icon was (re)assigned (for the hide-icons fade) */
   iconSetAt: Record<Spot, number>;
   stacksLeft: Record<Spot, number>;
-  targets: Record<Spot, Vec2>;
-  hint: string;
-  result: Result | null = null;
 
   /** towers of the currently telegraphed set (spawn..resolve) */
   activeTowers: { plan: SetPlan; spawnT: number; resolveT: number } | null = null;
@@ -97,27 +81,11 @@ export class SimEngine {
   /** last set that spawned (for HUD progress) */
   currentSet = 0;
 
-  private sprintUntil = -Infinity;
-  private sprintReadyAt = 0;
-
-  private dashCharges = DASH_CHARGES;
-  /** next charge refill time; meaningful only while charges < max */
-  private dashRechargeAt = 0;
-  private dashUntil = -Infinity;
-  private dashDir: Vec2 = { x: 0, y: 0 };
-  private lastMoveDir: Vec2 | null = null;
-
-  private timeline: TimelineEvent[];
-  private nextEvent = 0;
-  private castSegs: CastSeg[] = [];
-
   constructor(script: AttemptScript, userSpot: Spot) {
+    super(userSpot, SETUP_POS);
     this.script = script;
-    this.userSpot = userSpot;
     this.plans = Array.from({ length: 8 }, (_, i) => buildSetPlan(script, i + 1));
 
-    this.positions = { ...SETUP_POS };
-    this.targets = { ...SETUP_POS };
     this.stacksLeft = Object.fromEntries(SPOTS.map((s) => [s, 4])) as Record<Spot, number>;
     this.icons = Object.fromEntries(SPOTS.map((s) => [s, null])) as Record<Spot, Icon | null>;
     this.iconSetAt = Object.fromEntries(SPOTS.map((s) => [s, 0])) as Record<Spot, number>;
@@ -138,7 +106,6 @@ export class SimEngine {
     // before the soak (1.0 + 4.7 + 5.0 + 0.3 = 10, asserted in constants.ts).
     // Events are processed in push order, which breaks equal-t ties:
     // resolve(odd) before spawn(even), bait before spawn(next odd).
-    this.timeline = [];
     this.timeline.push({ t: SETUP_T, kind: 'spawn', set: 1 });
     let oddResolve = SETUP_T + TELEGRAPH_T;
     this.timeline.push({ t: oddResolve, kind: 'resolve', set: 1 });
@@ -170,106 +137,24 @@ export class SimEngine {
     }
   }
 
-  get castBar(): { label: string; frac: number } | null {
-    for (const c of this.castSegs) {
-      if (this.t >= c.t0 && this.t < c.t1) {
-        return { label: c.label, frac: (this.t - c.t0) / (c.t1 - c.t0) };
-      }
-    }
-    return null;
+  /** single-boss shim over castBars — Forsaken never overlaps casts */
+  get castBar(): CastBar | null {
+    return this.castBars[0] ?? null;
   }
 
-  update(dt: number, userInput: Vec2, sprint = false, dash = false): void {
-    if (this.result) return;
-    // clamp dt so a background tab doesn't teleport the sim
-    dt = Math.min(dt, 0.1);
-    this.t += dt;
-
-    if (sprint && this.t >= this.sprintReadyAt) {
-      this.sprintUntil = this.t + SPRINT_DURATION;
-      this.sprintReadyAt = this.t + SPRINT_COOLDOWN;
-    }
-
-    if (this.dashCharges < DASH_CHARGES && this.t >= this.dashRechargeAt) {
-      this.dashCharges++;
-      this.dashRechargeAt += DASH_RECHARGE;
-    }
-
-    if (dash && this.dashCharges > 0 && this.t >= this.dashUntil) {
-      const inLen = Math.hypot(userInput.x, userInput.y);
-      const dir =
-        inLen > 1e-6 ? { x: userInput.x / inLen, y: userInput.y / inLen } : this.lastMoveDir;
-      if (dir) {
-        if (this.dashCharges === DASH_CHARGES) this.dashRechargeAt = this.t + DASH_RECHARGE;
-        this.dashCharges--;
-        this.dashDir = dir;
-        this.dashUntil = this.t + DASH_DURATION;
-      }
-    }
-
-    // movement
-    const step = BOT_SPEED * dt;
-    const userSpeed = this.t < this.sprintUntil ? SPRINT_SPEED : MOVE_SPEED;
-    for (const s of SPOTS) {
-      if (s === this.userSpot) {
-        if (this.t < this.dashUntil) {
-          const k = (DASH_DIST / DASH_DURATION) * dt;
-          this.positions[s] = clampToArena({
-            x: this.positions[s].x + this.dashDir.x * k,
-            y: this.positions[s].y + this.dashDir.y * k,
-          });
-          continue;
-        }
-        const len = Math.hypot(userInput.x, userInput.y);
-        if (len > 1e-6) {
-          this.lastMoveDir = { x: userInput.x / len, y: userInput.y / len };
-          const k = (userSpeed * dt) / Math.max(1, len);
-          this.positions[s] = clampToArena({
-            x: this.positions[s].x + userInput.x * k,
-            y: this.positions[s].y + userInput.y * k,
-          });
-        }
-      } else {
-        this.positions[s] = stepToward(this.positions[s], this.targets[s], step);
-      }
-    }
-
+  protected afterMove(): void {
     // unlocked clones keep their aim trained on the user — the boss targets YOU
     if (this.clones.length > 0 && !this.clones[0].locked) {
       const aim = { ...this.positions[this.userSpot] };
       for (const c of this.clones) c.aim = aim;
     }
+  }
 
-    // timeline
-    while (this.nextEvent < this.timeline.length && this.timeline[this.nextEvent].t <= this.t) {
-      const ev = this.timeline[this.nextEvent++];
-      this.handle(ev);
-      if (this.result) return;
-    }
-
+  protected afterEvents(): void {
     this.effects = this.effects.filter((e) => e.until > this.t);
   }
 
-  get sprint(): { activeLeft: number; cooldownLeft: number } {
-    return {
-      activeLeft: Math.max(0, this.sprintUntil - this.t),
-      cooldownLeft: Math.max(0, this.sprintReadyAt - this.t),
-    };
-  }
-
-  get dash(): { charges: number; rechargeLeft: number } {
-    return {
-      charges: this.dashCharges,
-      rechargeLeft:
-        this.dashCharges < DASH_CHARGES ? Math.max(0, this.dashRechargeAt - this.t) : 0,
-    };
-  }
-
-  private fail(info: FailInfo): void {
-    this.result = { kind: 'fail', ...info };
-  }
-
-  private handle(ev: TimelineEvent): void {
+  protected handle(ev: TimelineEvent): void {
     const plan = this.plans[ev.set - 1];
     switch (ev.kind) {
       case 'spawn': {
@@ -477,7 +362,13 @@ export class SimEngine {
       if (ok) continue;
       const hit = hits.filter((s) => s !== baiter);
       const missed = hits.includes(baiter) ? [] : [baiter];
-      const zone: FailZone = { kind: 'cone', pos: { ...src }, dirRad };
+      const zone: FailZone = {
+        kind: 'cone',
+        pos: { ...src },
+        dirRad,
+        halfRad: half,
+        len: CONE_LEN,
+      };
       if (user === baiter && nearest !== user) {
         this.fail({
           reason: `You failed to bait ${c}'s cone — ${nearest} was closer than you.`,

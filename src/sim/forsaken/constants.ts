@@ -1,21 +1,11 @@
-import type { Spot } from './types';
+import type { Spot } from '../core/types';
 
-// ---- World geometry (yalms). North = up, compass angles in degrees clockwise from N.
-// Measured from FFLogs report mvDy6P2xHjCdZptq (v2 API event coordinates,
-// arena center = map (100,100), Kefka fixed exactly there) plus the Action
-// sheet EffectRange values for the AoE sizes. The old diagram-derived layout
-// was uniformly inflated by 7/5; rescaling by 5/7 lands exactly on the
-// game-data numbers (towers 8.0y / r4, spread = stack = 5).
-export const R_ARENA = 20;
-/** Kefka's outer hitbox / target ring — clone baiters stand ON this. */
-export const R_OUTER_RING = 6.0;
-/** inner hitbox ring — even-set cone soakers stand ON it (observed 4.9–5.0y) */
-export const R_INNER_RING = 5.0;
-/**
- * bots path around this radius so they don't clip through the boss (not lethal
- * to the player). Must stay below the odd-set stack helpers at r≈3.86.
- */
-export const R_DEADZONE = 3.4;
+// ---- P2 Forsaken geometry (yalms). Shares the core arena (R_ARENA 20, boss
+// rings) — see core/constants.ts. Measured from FFLogs report mvDy6P2xHjCdZptq
+// (v2 API event coordinates) plus the Action sheet EffectRange values for the
+// AoE sizes. The old diagram-derived layout was uniformly inflated by 7/5;
+// rescaling by 5/7 lands exactly on the game-data numbers (towers 8.0y / r4,
+// spread = stack = 5).
 
 /** every logged tower (94 casts, 11 pulls) sits at exactly 8.00y from center */
 export const TOWER_DIST = 8.0;
@@ -51,24 +41,6 @@ export const CLONE_SPREAD_R = SPREAD_R;
 export const CONE_HALF_DEG = 45;
 /** Action 47810 "Spellwave": CastType 13 cone, EffectRange 40 (spans the arena) */
 export const CONE_LEN = 40;
-/** hitbox ring 6 + melee reach 3.5 — real bait stacks observed at 8.9–9.6y */
-export const MAX_MELEE = 9.5;
-
-// ---- Movement
-export const MOVE_SPEED = 6.0;
-/** bots "sprint" slightly so they always make position after big tower rotations */
-export const BOT_SPEED = 6.6;
-/** FFXIV Sprint is +30% movement speed */
-export const SPRINT_SPEED = MOVE_SPEED * 1.3;
-export const SPRINT_DURATION = 10;
-/** recharge starts at the press, not when the buff ends */
-export const SPRINT_COOLDOWN = 60;
-/** Dash (key 1) modeled on Dancer's En Avant: a 10y burst with charges */
-export const DASH_DIST = 10;
-export const DASH_CHARGES = 3;
-export const DASH_RECHARGE = 30;
-/** rendered as a very fast slide, not a teleport */
-export const DASH_DURATION = 0.25;
 
 // ---- Timings (seconds), matched to the cactbot dancing_mad timeline:
 // towers resolve every ~10s; Future's/Past's End resolves 1.3s BEFORE the even

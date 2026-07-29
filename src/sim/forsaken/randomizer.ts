@@ -1,6 +1,7 @@
-import { makeRng, pick, randInt, shuffle } from './rng';
-import type { AttemptScript, Group, Icon, Spot, StartPrefs } from './types';
-import { SPOTS, isSupport, partnerOf } from './types';
+import { makeRng, pick, randInt, shuffle } from '../core/rng';
+import type { Spot } from '../core/types';
+import { SPOTS, isSupport, partnerOf } from '../core/types';
+import type { AttemptScript, Group, Icon, StartPrefs } from './types';
 
 const SUPPORTS: Spot[] = ['T1', 'T2', 'H1', 'H2'];
 const DPS: Spot[] = ['M1', 'M2', 'R1', 'R2'];
@@ -82,17 +83,4 @@ export function matchesPrefs(script: AttemptScript, spot: Spot, prefs: StartPref
   if (prefs.group !== 'any' && script.groupOf[spot] !== prefs.group) return false;
   if (prefs.icon !== 'any' && initialIconOf(script, spot) !== prefs.icon) return false;
   return true;
-}
-
-/**
- * Rejection-sample seeds until the rolled pattern satisfies the start prefs
- * for the user's spot. Worst satisfiable combo (group A + cone) accepts 1/8
- * of rolls; the cap only matters for combos the UI already forbids (B + stack).
- */
-export function findSeed(spot: Spot, prefs: StartPrefs, randomSeed: () => number): number {
-  let seed = randomSeed();
-  for (let i = 0; i < 10000 && !matchesPrefs(rollAttempt(seed), spot, prefs); i++) {
-    seed = randomSeed();
-  }
-  return seed;
 }

@@ -1,4 +1,4 @@
-import type { Vec2 } from '../sim/types';
+import type { Vec2 } from '../sim/core/types';
 
 const pressed = new Set<string>();
 let attached = false;

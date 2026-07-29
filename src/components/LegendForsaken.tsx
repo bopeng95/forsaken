@@ -11,7 +11,7 @@ function Item({ name, children }: { name: string; children: ReactNode }) {
   );
 }
 
-export function Legend() {
+export function LegendForsaken() {
   return (
     <aside className="legend">
       <h3>Debuff icons</h3>

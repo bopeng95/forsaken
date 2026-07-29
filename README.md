@@ -5,6 +5,7 @@ A browser-based practice simulator for selected mechanics of FFXIV's **Dancing M
 ## Supported mechanics
 
 - **Forsaken** (Phase 2) — following the **Kroxy-Rinon (KR)** strat.
+- **Kefka Says** (Phase 4) — following the **Gazes Mid** raidplan.
 
 ## Play
 

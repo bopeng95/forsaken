@@ -5,6 +5,22 @@ export function dist(a: Vec2, b: Vec2): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+/** World point at a compass azimuth (deg, 0 = N, clockwise) and radius. */
+export function compass(deg: number, r: number): Vec2 {
+  const a = (deg * Math.PI) / 180;
+  return { x: r * Math.sin(a), y: -r * Math.cos(a) };
+}
+
+/**
+ * Local frame: dDeg is a compass direction (0 = "relative north" = away from the
+ * reference azimuth, clockwise) in the frame where southDeg is at local south.
+ * P2 uses it with the tower-pair midpoint as "relative south".
+ */
+export function lp(southDeg: number, dDeg: number, r: number): Vec2 {
+  const world = (((southDeg + 180 + dDeg) % 360) * Math.PI) / 180;
+  return { x: r * Math.sin(world), y: -r * Math.cos(world) };
+}
+
 export function clampToArena(p: Vec2): Vec2 {
   const r = Math.hypot(p.x, p.y);
   const max = R_ARENA - 0.4;
@@ -12,7 +28,7 @@ export function clampToArena(p: Vec2): Vec2 {
   return { x: (p.x / r) * max, y: (p.y / r) * max };
 }
 
-/** all duty spots sit at r >= 5.4 (odd-set stack helpers), so bots orbit at 5.1 when cutting across */
+/** all duty spots sit at r >= 3.86 (P2 odd-set stack helpers), so bots orbit at 3.7 when cutting across */
 const AVOID_R = R_DEADZONE + 0.3;
 
 function segmentMinDistToOrigin(a: Vec2, b: Vec2): number {
