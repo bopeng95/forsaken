@@ -10,7 +10,7 @@ Pick which of the 8 party spots you play — T1, T2, H1, H2, M1, M2, R1, R2 — 
 
 ## Play
 
-No setup needed — just visit **[forsaken-iota.vercel.app](https://forsaken-iota.vercel.app)**.
+No setup needed — just visit **[kefka-dm.vercel.app](https://kefka-dm.vercel.app)**.
 
 ## License
 
