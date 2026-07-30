@@ -99,6 +99,20 @@ export function consumeRewind(): boolean {
   return q;
 }
 
+/**
+ * Drop every queued one-shot press. Listeners attach to window forever, so without this a
+ * C/R/T pressed around a route change would sit queued and fire into the next GameView mount.
+ */
+export function clearPresses(): void {
+  sprintQueued = false;
+  dashQueued = false;
+  pauseQueued = false;
+  restartQueued = false;
+  replayQueued = false;
+  changeSpotQueued = false;
+  rewindQueued = false;
+}
+
 export function inputVec(): Vec2 {
   let x = 0;
   let y = 0;
