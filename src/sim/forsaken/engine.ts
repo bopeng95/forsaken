@@ -1,4 +1,4 @@
-import type { CastBar } from '../core/engine';
+import type { CastBar, Checkpoint } from '../core/engine';
 import { BaseEngine } from '../core/engine';
 import { dist } from '../core/motion';
 import type { FailZone, Spot, Vec2 } from '../core/types';
@@ -140,6 +140,39 @@ export class SimEngine extends BaseEngine<TimelineEvent> {
   /** single-boss shim over castBars — Forsaken never overlaps casts */
   get castBar(): CastBar | null {
     return this.castBars[0] ?? null;
+  }
+
+  protected buildCheckpoints(): Checkpoint[] {
+    return [
+      ...super.buildCheckpoints(), // Future's/Past's End + All Things Ending cast starts
+      // tower spawn/resolve deaths have no cast — anchor each set's telegraph.
+      // Odd sets 3/5/7 spawn AT the bait call, so "Towers N" doubles as the
+      // re-bait anchor for a misaimed Future/Past bait (reachable by chained rewind).
+      ...this.timeline
+        .filter((ev) => ev.kind === 'spawn')
+        .map((ev) => ({ t: ev.t, label: `Towers ${ev.set}` })),
+      // set 8's bait shares its t with no next spawn — anchor the final bait explicitly
+      ...this.timeline
+        .filter((ev) => ev.kind === 'bait' && ev.set === 8)
+        .map((ev) => ({ t: ev.t, label: 'Final bait' })),
+    ];
+  }
+
+  protected snapFields(): Record<string, unknown> {
+    return {
+      ...super.snapFields(),
+      icons: this.icons,
+      iconSetAt: this.iconSetAt,
+      stacksLeft: this.stacksLeft,
+      activeTowers: this.activeTowers, // .plan is plain immutable data — a clone is equivalent
+      effects: this.effects,
+      clones: this.clones,
+      cleaveDir: this.cleaveDir,
+      baitMarker: this.baitMarker,
+      baitStartT: this.baitStartT,
+      baitEndT: this.baitEndT,
+      currentSet: this.currentSet,
+    };
   }
 
   protected afterMove(): void {

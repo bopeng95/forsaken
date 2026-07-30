@@ -500,6 +500,27 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
     this.effects = this.effects.filter((e) => e.until > this.t);
   }
 
+  // checkpoints stay the BaseEngine default (cast starts): every lethal check
+  // sits 0.7–6s after one, and the tight long-gaze case works because gazePose
+  // re-fires after a rewind (chained rewinds reach recorded Ice if needed)
+  protected snapFields(): Record<string, unknown> {
+    return {
+      ...super.snapFields(),
+      zones: this.zones,
+      antilightActive: this.antilightActive,
+      drops: this.drops,
+      nePos: this.nePos,
+      chaosPos: this.chaosPos,
+      phaseLabel: this.phaseLabel,
+      effects: this.effects,
+      gazeRule: this.gazeRule, // .plan is plain immutable data — a clone is equivalent
+      armWindow: this.armWindow,
+      armAccum: this.armAccum, // mid-window accumulation restores consistently with prevPos
+      wiggleBase: this.wiggleBase,
+      prevPos: this.prevPos,
+    };
+  }
+
   // ---- helpers -----------------------------------------------------------
 
   private fakeIceZones(): IceZone[] {

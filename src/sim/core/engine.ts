@@ -35,6 +35,20 @@ export interface CastBar {
   tells?: { thunder?: RF; ice?: RF };
 }
 
+/** a rewind anchor: the sim time a cast (or castless lethal telegraph) begins */
+export interface Checkpoint {
+  t: number;
+  label: string;
+}
+
+/** full mutable-state capture taken as the sim clock crosses a checkpoint */
+interface Snapshot {
+  /** the capture tick's sim time (>= the checkpoint t by < one dt) */
+  t: number;
+  label: string;
+  data: Record<string, unknown>;
+}
+
 /**
  * Mechanic-agnostic sim shell: the clock, player movement (user input +
  * sprint/dash, bots walking to `targets`), facing, the fixed event timeline
@@ -70,6 +84,11 @@ export abstract class BaseEngine<E extends { t: number }> {
   protected timeline: E[] = [];
   private nextEvent = 0;
   protected castSegs: CastSeg[] = [];
+
+  /** built lazily on the first update — subclasses fill castSegs/timeline in their constructors */
+  private ckpts: Checkpoint[] | null = null;
+  /** one snapshot per crossed checkpoint; invariant: snaps.length = checkpoints consumed */
+  private snaps: Snapshot[] = [];
 
   constructor(userSpot: Spot, startPositions: Record<Spot, Vec2>) {
     this.userSpot = userSpot;
@@ -115,6 +134,35 @@ export abstract class BaseEngine<E extends { t: number }> {
       rechargeLeft:
         this.dashCharges < DASH_CHARGES ? Math.max(0, this.dashRechargeAt - this.t) : 0,
     };
+  }
+
+  /** the latest checkpoint snapshot strictly before now — the rewind target, if any */
+  rewindInfo(): { t: number; label: string } | null {
+    for (let i = this.snaps.length - 1; i >= 0; i--) {
+      if (this.snaps[i].t < this.t) return { t: this.snaps[i].t, label: this.snaps[i].label };
+    }
+    return null;
+  }
+
+  /**
+   * Restore the latest checkpoint snapshot strictly before now (clearing a fail
+   * result); repeated calls step back one checkpoint at a time — the escape when
+   * replaying a checkpoint deterministically re-wipes (e.g. a misaimed bait).
+   * Snapshots after the restore point are dropped so playing forward re-captures
+   * them fresh. No-op after a clear or when no earlier checkpoint exists.
+   */
+  rewind(): boolean {
+    if (this.result?.kind === 'clear') return false;
+    for (let i = this.snaps.length - 1; i >= 0; i--) {
+      if (this.snaps[i].t < this.t) {
+        // clone again so the stored snapshot survives being rewound to repeatedly;
+        // the bag includes result (always null at capture), so this also revives the sim
+        Object.assign(this, structuredClone(this.snaps[i].data));
+        this.snaps.length = i + 1; // keep invariant: snaps.length = checkpoints consumed
+        return true;
+      }
+    }
+    return false;
   }
 
   update(dt: number, userInput: Vec2, sprint = false, dash = false): void {
@@ -182,6 +230,14 @@ export abstract class BaseEngine<E extends { t: number }> {
 
     this.afterMove(dt);
 
+    // checkpoint snapshots: captured BEFORE the event pump with nextEvent saved,
+    // so events at/after the checkpoint re-fire deterministically after a rewind
+    const ckpts = this.checkpoints();
+    while (this.snaps.length < ckpts.length && ckpts[this.snaps.length].t <= this.t) {
+      const c = ckpts[this.snaps.length];
+      this.snaps.push({ t: this.t, label: c.label, data: structuredClone(this.snapFields()) });
+    }
+
     // timeline
     while (this.nextEvent < this.timeline.length && this.timeline[this.nextEvent].t <= this.t) {
       const ev = this.timeline[this.nextEvent++];
@@ -194,6 +250,51 @@ export abstract class BaseEngine<E extends { t: number }> {
 
   protected fail(info: FailInfo): void {
     this.result = { kind: 'fail', ...info };
+  }
+
+  /** rewind anchors, sorted+deduped lazily on the first update */
+  private checkpoints(): Checkpoint[] {
+    if (!this.ckpts) {
+      const raw = this.buildCheckpoints().sort((a, b) => a.t - b.t);
+      // merge same-instant anchors so one tick captures one snapshot per moment
+      this.ckpts = raw.filter((c, i) => i === 0 || c.t > raw[i - 1].t + 1e-6);
+    }
+    return this.ckpts;
+  }
+
+  /**
+   * Rewind anchors. Default: the start of every cast bar. Subclasses may add
+   * anchors for lethal checks without a cast (Forsaken tower spawns).
+   */
+  protected buildCheckpoints(): Checkpoint[] {
+    return this.castSegs.map((c) => ({ t: c.t0, label: c.label }));
+  }
+
+  /**
+   * The engine's full mutable state as a structuredClone-able bag — every field
+   * update()/handle() writes. Subclasses spread super.snapFields() and add theirs.
+   * Immutable script/plan/timeline fields stay out; mutable references into
+   * immutable plans (Forsaken activeTowers.plan, Kefka gazeRule.plan) come back
+   * as clones on restore, which is fine — they're plain value data and nothing
+   * compares them by identity.
+   */
+  protected snapFields(): Record<string, unknown> {
+    return {
+      t: this.t,
+      positions: this.positions,
+      targets: this.targets,
+      facing: this.facing,
+      hint: this.hint,
+      result: this.result, // always null at capture (update() early-returns once dead)
+      sprintUntil: this.sprintUntil,
+      sprintReadyAt: this.sprintReadyAt,
+      dashCharges: this.dashCharges,
+      dashRechargeAt: this.dashRechargeAt,
+      dashUntil: this.dashUntil,
+      dashDir: this.dashDir,
+      lastMoveDir: this.lastMoveDir,
+      nextEvent: this.nextEvent,
+    };
   }
 
   /** runs after movement, before due events (Forsaken: clone aim tracking; Kefka Says: bot facing overrides) */

@@ -16,6 +16,7 @@ import {
   consumePause,
   consumeReplay,
   consumeRestart,
+  consumeRewind,
   consumeSprint,
   inputVec,
 } from '../input/keyboard';
@@ -159,6 +160,8 @@ interface Ui {
   /** sim clock has advanced past 0 (Start vs Resume label) */
   started: boolean;
   result: Result | null;
+  /** a rewind checkpoint exists to return to, only while dead to a fail */
+  canRewind: boolean;
   hud: HudData;
 }
 
@@ -351,6 +354,17 @@ export function GameView({
         return;
       }
 
+      // rewind: on death, or step further back while paused (chained rewinds escape
+      // a checkpoint whose replay deterministically re-wipes, e.g. a misaimed bait)
+      if (
+        consumeRewind() &&
+        (engine.result?.kind === 'fail' || pausedRef.current) &&
+        engine.rewind()
+      ) {
+        pausedRef.current = true;
+        setPaused(true);
+      }
+
       if (consumePause() && !engine.result) {
         pausedRef.current = !pausedRef.current;
         setPaused(pausedRef.current);
@@ -412,6 +426,7 @@ export function GameView({
         dashCd: Math.ceil(dash.rechargeLeft),
         started: engine.t > 0,
         result: engine.result,
+        canRewind: engine.result?.kind === 'fail' && engine.rewindInfo() !== null,
         hud: snapshotHud(engine, spot, persistIconsRef.current),
       };
       const json = JSON.stringify(snapshot);
@@ -481,6 +496,20 @@ export function GameView({
           <div className={`result-banner ${ui.result.kind}`}>
             <strong>{ui.result.kind === 'clear' ? `${def.title} resolved!` : 'Wipe'}</strong>
             {ui.result.kind === 'fail' && <span className="reason">{ui.result.reason}</span>}
+            {ui.result.kind === 'fail' && ui.canRewind && (
+              <button
+                className="panel-btn primary"
+                onClick={() => {
+                  const eng = engineRef.current;
+                  if (eng?.rewind()) {
+                    pausedRef.current = true;
+                    setPaused(true);
+                  }
+                }}
+              >
+                Rewind <kbd>E</kbd>
+              </button>
+            )}
           </div>
         )}
 

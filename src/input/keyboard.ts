@@ -20,6 +20,7 @@ let pauseQueued = false;
 let restartQueued = false;
 let replayQueued = false;
 let changeSpotQueued = false;
+let rewindQueued = false;
 
 export function attachKeyboard(): void {
   if (attached) return;
@@ -41,6 +42,8 @@ export function attachKeyboard(): void {
       replayQueued = true;
     } else if (e.code === 'KeyC' && !e.repeat) {
       changeSpotQueued = true;
+    } else if (e.code === 'KeyE' && !e.repeat) {
+      rewindQueued = true;
     }
   });
   window.addEventListener('keyup', (e) => pressed.delete(e.code));
@@ -86,6 +89,13 @@ export function consumeReplay(): boolean {
 export function consumeChangeSpot(): boolean {
   const q = changeSpotQueued;
   changeSpotQueued = false;
+  return q;
+}
+
+/** returns true once per press of E (queued so a press between frames isn't lost) */
+export function consumeRewind(): boolean {
+  const q = rewindQueued;
+  rewindQueued = false;
   return q;
 }
 
