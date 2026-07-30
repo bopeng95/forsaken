@@ -36,7 +36,7 @@ export interface MmPattern {
   thunderAxisDeg: number;
   /** which opposite-quadrant pair carries this set's ice roll */
   icePair: 0 | 1;
-  /** 4-cone sets (MM3, recorded/final ice) also show the other pair with the opposite tell */
+  /** 4-cone sets (MM3, recorded ice) also show the other pair with the opposite tell */
   bothIcePairs: boolean;
 }
 

@@ -13,7 +13,7 @@ import {
   STRAY_FLAME_R,
   THUNDER_LANE_W,
 } from '../sim/kefkasays/constants';
-import type { IceZone, KefkaEngine, Zone } from '../sim/kefkasays/engine';
+import type { KefkaEngine, Zone } from '../sim/kefkasays/engine';
 import {
   beginArena,
   drawBossGlyph,
@@ -133,60 +133,15 @@ function pathIceWedge(ctx: CanvasRenderingContext2D, proj: Proj, aimDeg: number)
 }
 
 /**
- * hints off: every telegraph draws exactly as the game shows it — real and
- * fake are identical yellow, and reading the caster's orb ring is on you
+ * every telegraph draws exactly as the game shows it — real and fake are
+ * identical yellow, and reading the caster's orb ring is on you (hints add a
+ * strat ghost showing where to go, never touching the telegraphs themselves)
  */
 function drawZoneTelegraph(ctx: CanvasRenderingContext2D, proj: Proj, z: Zone, t: number): void {
   const a = zoneAlpha(z, t);
   ctx.beginPath();
   if (z.kind === 'thunder') pathThunderStripes(ctx, proj, z.axisDeg, HIT_LANES);
   else pathIceWedge(ctx, proj, z.aimDeg);
-  ctx.fillStyle = zoneFill(a);
-  ctx.fill();
-  ctx.strokeStyle = zoneEdge(a);
-  ctx.lineWidth = 2;
-  ctx.stroke();
-}
-
-/**
- * hints on: tint the ground that will actually be LETHAL — real zones as
- * telegraphed, fake ones inverted to their complement (fakes hit everything
- * outside the marked area) — so whatever stays transparent is safe to stand on.
- */
-function drawDeadlyZones(ctx: CanvasRenderingContext2D, proj: Proj, zones: Zone[], t: number): void {
-  const L = R_ARENA + 2;
-  for (const z of zones) {
-    if (z.kind !== 'thunder') continue;
-    const a = zoneAlpha(z, t);
-    const segs: Array<[number, number]> =
-      z.rf === 'real'
-        ? HIT_LANES
-        : [
-            [THUNDER_LANE_W, L],
-            [-THUNDER_LANE_W, 0],
-            [-L, -2 * THUNDER_LANE_W],
-          ];
-    ctx.beginPath();
-    pathThunderStripes(ctx, proj, z.axisDeg, segs);
-    ctx.fillStyle = zoneFill(a);
-    ctx.fill();
-    ctx.strokeStyle = zoneEdge(a);
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  }
-
-  // lethal ice = the real quadrants plus (when a fake Blizzard is up) every
-  // quadrant its telegraph does NOT mark; each wedge drawn once
-  const ice = zones.filter((z): z is IceZone => z.kind === 'ice');
-  if (ice.length === 0) return;
-  const a = zoneAlpha(ice[0], t);
-  const realAims = new Set(ice.filter((z) => z.rf === 'real').map((z) => z.aimDeg));
-  const fakeAims = new Set(ice.filter((z) => z.rf === 'fake').map((z) => z.aimDeg));
-  const deadly = [45, 135, 225, 315].filter(
-    (aim) => realAims.has(aim) || (fakeAims.size > 0 && !fakeAims.has(aim)),
-  );
-  ctx.beginPath();
-  for (const aim of deadly) pathIceWedge(ctx, proj, aim);
   ctx.fillStyle = zoneFill(a);
   ctx.fill();
   ctx.strokeStyle = zoneEdge(a);
@@ -259,9 +214,8 @@ export function drawKefkaSays(
     ctx.fill();
   }
 
-  // ---- telegraph zones: in-game look by default; hints tint the lethal ground
-  if (showHints) drawDeadlyZones(ctx, proj, eng.zones, t);
-  else for (const z of eng.zones) drawZoneTelegraph(ctx, proj, z, t);
+  // ---- telegraph zones: always the in-game look, hints or not
+  for (const z of eng.zones) drawZoneTelegraph(ctx, proj, z, t);
 
   drawBossRings(ctx, proj);
   drawBossGlyph(ctx, proj, t);
