@@ -51,6 +51,11 @@ export function LegendKefkaSays() {
       </Item>
 
       <h3>On the field</h3>
+      <p className="legend-note">
+        Telegraphs look identical whether real or fake — reading the caster's orb ring is on you.
+        Fakes invert: they hit everything <em>outside</em> the marked area. With hints on, the tint
+        shows the actual lethal ground instead, so whatever stays transparent is safe.
+      </p>
       <Item name="Thunder lanes">
         {/* -15° and 24x7 keep the rotated corners inside the 28x28 viewBox */}
         <g fill="rgba(235,200,70,0.45)" stroke="rgba(245,215,90,0.9)" strokeWidth="1">

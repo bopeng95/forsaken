@@ -17,7 +17,8 @@ export interface Duty {
 
 /** stack cluster positions, radially in line so everyone sits ON the N-S seam
  * (the recorded-ice quadrant cleaves aim at intercardinals — cardinal seams
- * stay safe, see engine iceHit) */
+ * dodge the real quadrants AND count as covered by adjacent fake ones, see
+ * engine iceHit/iceCovers) */
 const STACK_R_NEAR = 9.6;
 const STACK_R_MID = 11.4;
 const STACK_R_FAR = 13.2;
@@ -44,9 +45,10 @@ export const OPENING_RING: Record<Spot, Vec2> = {
  * The twister/donut drop cluster. The raidplan stacks dead center; the sim's
  * bot steering never enters the boss deadzone (r 3.7), so the cluster is a
  * tight column just south of it — exactly on the S cardinal seam (safe from
- * every ice quadrant) and packed so every donut hole covers everyone. The
- * randomizer keeps the final thunder lanes off this column when the Dynamic
- * Fluid drop is the stay-in-hole kind.
+ * every real ice quadrant, and covered by an adjacent fake one) and packed so
+ * every donut hole covers everyone. The randomizer constrains the final
+ * thunder axis (real lanes miss this column, fake lanes cover it) when the
+ * Dynamic Fluid drop is the stay-in-hole kind.
  */
 export const DROP_CLUSTER: Record<Spot, Vec2> = Object.fromEntries(
   SPOTS.map((s, i) => [s, { x: 0, y: 3.9 + i * 0.3 }]),
@@ -120,11 +122,14 @@ export interface GazePlan {
 
 /**
  * 1st gaze (raidplan slide 16): shriek holders inside the hitbox (only them!),
- * everyone else lined up along the live Thrumming Thunder lane edge, on the
- * safe side — supports toward the north end of the line, DPS south.
+ * everyone else lined up along the live Thrumming Thunder lane edge —
+ * supports toward the north end of the line, DPS south.
  * The frame follows the recorded-thunder pattern axis: n = pattern normal
- * (hit lanes at n·p ∈ [0,10] ∪ [-20,-10]), u = lane direction; positions sit
- * at a small NEGATIVE n offset (the safe near-lane).
+ * (hit lanes at n·p ∈ [0,10] ∪ [-20,-10]), u = lane direction. A REAL
+ * recorded thunder hits its lanes, so the lineup sits at a small NEGATIVE n
+ * offset (the gap just off the near lane); a FAKE one inverts — only the
+ * lanes are safe — so the whole formation mirrors to a POSITIVE offset just
+ * inside the near lane.
  */
 export function buildGazeShortPlan(script: KefkaScript): GazePlan {
   const holders = script.gc[0].shriek;
@@ -132,34 +137,39 @@ export function buildGazeShortPlan(script: KefkaScript): GazePlan {
   const n = compass(axis, 1);
   let u = compass(axis + 90, 1);
   if (u.y > 0) u = { x: -u.x, y: -u.y }; // u points to the north-ish end (supports' side)
+  const laneSign = script.bankedThunder === 'fake' ? 1 : -1;
   const at = (off: number, along: number): Vec2 => ({
-    x: n.x * off + u.x * along,
-    y: n.y * off + u.y * along,
+    x: n.x * off * laneSign + u.x * along,
+    y: n.y * off * laneSign + u.y * along,
   });
+  const lineWord =
+    script.bankedThunder === 'fake'
+      ? 'Line up INSIDE the fake thunder lane'
+      : 'Line up on the thunder edge';
 
   const rfWord = script.gc[0].rf === 'real' ? 'party looks AWAY' : 'party looks AT them';
   const duties = {} as Record<Spot, Duty>;
   const [supHolder, dpsHolder] = holders;
   duties[supHolder] = {
-    pos: at(-1.4, 2.2),
+    pos: at(1.4, 2.2),
     label: `Your SHRIEK (short) — under the boss, north side; ${rfWord}`,
   };
   duties[dpsHolder] = {
-    pos: at(-1.4, -2.2),
+    pos: at(1.4, -2.2),
     label: `Your SHRIEK (short) — under the boss, south side; ${rfWord}`,
   };
   const supLine = side(true).filter((s) => s !== supHolder);
   const dpsLine = side(false).filter((s) => s !== dpsHolder);
   supLine.forEach((s, i) => {
     duties[s] = {
-      pos: at(-2.1, 7.2 + i * 2.6),
-      label: `Line up on the thunder edge, north side — shrieks (${holders.join('+')}) resolve soon`,
+      pos: at(2.1, 7.2 + i * 2.6),
+      label: `${lineWord}, north side — shrieks (${holders.join('+')}) resolve soon`,
     };
   });
   dpsLine.forEach((s, i) => {
     duties[s] = {
-      pos: at(-2.1, -(7.2 + i * 2.6)),
-      label: `Line up on the thunder edge, south side — shrieks (${holders.join('+')}) resolve soon`,
+      pos: at(2.1, -(7.2 + i * 2.6)),
+      label: `${lineWord}, south side — shrieks (${holders.join('+')}) resolve soon`,
     };
   });
   return { holders, duties };

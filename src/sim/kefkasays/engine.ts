@@ -164,13 +164,23 @@ function thunderPerp(p: Vec2, axisDeg: number): number {
   return p.x * n.x + p.y * n.y;
 }
 
-/** hit lanes sit at offsets [0, 10] and [-20, -10] (see constants.ts) */
-function thunderHit(p: Vec2, axisDeg: number): boolean {
+/**
+ * is p under the hit lanes (offsets [0, 10] and [-20, -10], see constants.ts)?
+ * pad < 0 shrinks the lanes (the real-hit check grants GRACE margin); pad > 0
+ * grows them (the fake-safety check forgives standing on the very lane edge).
+ */
+function inThunderLanes(p: Vec2, axisDeg: number, pad: number): boolean {
   const d = thunderPerp(p, axisDeg);
   return (
-    (d > GRACE && d < THUNDER_LANE_W - GRACE) ||
-    (d > -2 * THUNDER_LANE_W + GRACE && d < -THUNDER_LANE_W - GRACE)
+    (d > -pad && d < THUNDER_LANE_W + pad) ||
+    (d > -2 * THUNDER_LANE_W - pad && d < -THUNDER_LANE_W + pad)
   );
+}
+
+/** unsigned angular distance in degrees */
+function angDiff(aDeg: number, bDeg: number): number {
+  const d = Math.abs(aDeg - bDeg) % 360;
+  return d > 180 ? 360 - d : d;
 }
 
 /**
@@ -181,13 +191,26 @@ function iceHit(p: Vec2, aimDeg: number): boolean {
   const r = Math.hypot(p.x, p.y);
   if (r < 0.01 || r > ICE_LEN) return false;
   const bearing = (Math.atan2(p.x, -p.y) * 180) / Math.PI;
-  let diff = Math.abs(bearing - aimDeg);
-  while (diff > 180) diff = Math.abs(diff - 360);
-  return diff < ICE_HALF_DEG - 0.5;
+  return angDiff(bearing, aimDeg) < ICE_HALF_DEG - 0.5;
 }
 
+/**
+ * fake-ice coverage: a FAKE Blizzard inverts — it hits everywhere EXCEPT its
+ * quadrants, so being covered by one is what saves you. Closed comparison with
+ * the same 0.5° slack on the safe side: a cardinal seam counts as covered by
+ * an adjacent fake quadrant, so the strat's seam parking survives either roll.
+ */
+function iceCovers(p: Vec2, aimDeg: number): boolean {
+  const r = Math.hypot(p.x, p.y);
+  if (r > ICE_LEN) return false;
+  if (r < 0.01) return true; // every quadrant's tip
+  const bearing = (Math.atan2(p.x, -p.y) * 180) / Math.PI;
+  return angDiff(bearing, aimDeg) <= ICE_HALF_DEG + 0.5;
+}
+
+/** the real-hit test: the telegraph hits exactly what it shows */
 function zoneHit(p: Vec2, z: Zone): boolean {
-  return z.kind === 'thunder' ? thunderHit(p, z.axisDeg) : iceHit(p, z.aimDeg);
+  return z.kind === 'thunder' ? inThunderLanes(p, z.axisDeg, -GRACE) : iceHit(p, z.aimDeg);
 }
 
 /** ice quadrant aims for a pattern: pair 0 = NE+SW, pair 1 = SE+NW */
@@ -479,12 +502,20 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
 
   // ---- helpers -----------------------------------------------------------
 
-  private realZones(): Zone[] {
-    return this.zones.filter((z) => z.rf === 'real');
+  private fakeIceZones(): IceZone[] {
+    return this.zones.filter((z): z is IceZone => z.kind === 'ice' && z.rf === 'fake');
   }
 
+  /** dead ground right now: inside a REAL zone, or outside a FAKE one (fakes invert) */
   private safeAt(p: Vec2): boolean {
-    return !this.realZones().some((z) => zoneHit(p, z));
+    for (const z of this.zones) {
+      if (z.rf === 'real' && zoneHit(p, z)) return false;
+      if (z.rf === 'fake' && z.kind === 'thunder' && !inThunderLanes(p, z.axisDeg, GRACE)) {
+        return false;
+      }
+    }
+    const fakeIce = this.fakeIceZones();
+    return fakeIce.length === 0 || fakeIce.some((z) => iceCovers(p, z.aimDeg));
   }
 
   /** nearest safe point to an anchor, searched over small radial/angular offsets */
@@ -505,7 +536,7 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
     return anchor; // no safe spot found — the pattern rolls guarantee one exists
   }
 
-  /** send every bot to its duty, nudged out of live real telegraphs */
+  /** send every bot to its duty, nudged onto safe ground (out of real telegraphs, into fake ones) */
   private retarget(duties: Record<Spot, { pos: Vec2 }>): void {
     for (const s of SPOTS) this.targets[s] = this.nudgeSafe(duties[s].pos);
   }
@@ -534,26 +565,24 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
     if (nudge) for (const s of SPOTS) this.targets[s] = this.nudgeSafe(this.targets[s]);
   }
 
-  /** check every player against the live REAL zones, fail on any hit */
+  /**
+   * check every player against the live zones: REAL zones hit anyone inside
+   * them; FAKE zones invert and hit anyone OUTSIDE the telegraphed area
+   */
   private resolveZones(what: string): void {
-    for (const z of this.realZones()) {
+    const user = this.userSpot;
+    for (const z of this.zones) {
+      if (z.rf !== 'real') continue;
       const hits = SPOTS.filter((s) => zoneHit(this.positions[s], z));
       if (hits.length === 0) continue;
       const zone: FailZone =
         z.kind === 'ice'
-          ? {
-              kind: 'cone',
-              pos: { x: 0, y: 0 },
-              dirRad: ((z.aimDeg - 90) * Math.PI) / 180,
-              halfRad: (ICE_HALF_DEG * Math.PI) / 180,
-              len: ICE_LEN,
-            }
-          : this.thunderFailZone(z);
-      const user = this.userSpot;
+          ? this.iceFailZone(z.aimDeg)
+          : this.thunderStripe(z, thunderPerp(this.positions[user], z.axisDeg) > 0 ? 0.5 : -1.5);
       this.fail(
         hits.includes(user)
           ? {
-              reason: `You were hit by the REAL ${what} — check the orb ring on the cast: real telegraphs hit, fake ones fizzle.`,
+              reason: `You were hit by the REAL ${what} — check the orb ring on the cast: real telegraphs hit inside, fake ones hit everywhere OUTSIDE.`,
               ghost: this.nudgeSafe(this.positions[user]),
               hit: hits,
               zone,
@@ -566,14 +595,79 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
       );
       return;
     }
+
+    // fake thunder inverts: only the marked lanes are safe ground
+    for (const z of this.zones) {
+      if (z.kind !== 'thunder' || z.rf !== 'fake') continue;
+      const hits = SPOTS.filter((s) => !inThunderLanes(this.positions[s], z.axisDeg, GRACE));
+      if (hits.length === 0) continue;
+      const ref = hits.includes(user) ? user : hits[0];
+      const d = thunderPerp(this.positions[ref], z.axisDeg);
+      const zone = this.thunderStripe(z, d > THUNDER_LANE_W ? 1.5 : -0.5);
+      this.fail(
+        hits.includes(user)
+          ? {
+              reason: `The FAKE ${what} inverts — it hit everything OUTSIDE the marked thunder lanes. Stand inside a fake lane.`,
+              ghost: this.nudgeSafe(this.positions[user]),
+              hit: hits,
+              zone,
+            }
+          : {
+              reason: `${hits.join(', ')} stood outside the fake thunder lanes (fakes invert).`,
+              hit: hits,
+              zone,
+            },
+      );
+      return;
+    }
+
+    // fake ice inverts: safe only inside the union of the fake quadrants
+    const fakeIce = this.fakeIceZones();
+    if (fakeIce.length > 0) {
+      const hits = SPOTS.filter(
+        (s) => !fakeIce.some((z) => iceCovers(this.positions[s], z.aimDeg)),
+      );
+      if (hits.length > 0) {
+        const p = this.positions[hits.includes(user) ? user : hits[0]];
+        // the un-telegraphed quadrant the victim actually stood in
+        const bearing = (Math.atan2(p.x, -p.y) * 180) / Math.PI;
+        const aim = [45, 135, 225, 315].reduce((a, b) =>
+          angDiff(bearing, b) < angDiff(bearing, a) ? b : a,
+        );
+        const zone = this.iceFailZone(aim);
+        this.fail(
+          hits.includes(user)
+            ? {
+                reason: `The FAKE ${what} inverts — only the marked ice quadrants are safe, and you stood outside them.`,
+                ghost: this.nudgeSafe({ ...p }),
+                hit: hits,
+                zone,
+              }
+            : {
+                reason: `${hits.join(', ')} stood outside the fake ice quadrants (fakes invert).`,
+                hit: hits,
+                zone,
+              },
+        );
+        return;
+      }
+    }
     this.zones = [];
   }
 
-  /** the nearer hit lane of a thunder pattern as a drawable fail zone */
-  private thunderFailZone(z: ThunderZone): FailZone {
-    const user = this.positions[this.userSpot];
-    const d = thunderPerp(user, z.axisDeg);
-    const lane = d > 0 ? 0.5 * THUNDER_LANE_W : -1.5 * THUNDER_LANE_W;
+  private iceFailZone(aimDeg: number): FailZone {
+    return {
+      kind: 'cone',
+      pos: { x: 0, y: 0 },
+      dirRad: ((aimDeg - 90) * Math.PI) / 180,
+      halfRad: (ICE_HALF_DEG * Math.PI) / 180,
+      len: ICE_LEN,
+    };
+  }
+
+  /** one lane-width stripe of a thunder pattern (center in lane-width units) as a drawable fail zone */
+  private thunderStripe(z: ThunderZone, centerLanes: number): FailZone {
+    const lane = centerLanes * THUNDER_LANE_W;
     const n = compass(z.axisDeg, 1);
     const u = compass(z.axisDeg + 90, 1);
     return {
@@ -602,7 +696,7 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
         this.phaseLabel = `Debuffs ${i + 1}/3`;
         const roll = script.mm[i];
         this.spawnPattern(script.mmPattern[i], roll.thunder, roll.ice, st(MM_T[i] + MM_CAST + MM_HIT_DELAY));
-        this.hint = `Mystery Magic ${i + 1}: THUNDER lanes are ${roll.thunder.toUpperCase()}, ICE quadrants ${roll.ice.toUpperCase()} — dodge only what's real.`;
+        this.hint = `Mystery Magic ${i + 1}: THUNDER lanes are ${roll.thunder.toUpperCase()}, ICE quadrants ${roll.ice.toUpperCase()} — dodge the real, stand INSIDE the fake (fakes hit everything outside them).`;
         break;
       }
       case 'mmResolve': {
@@ -714,7 +808,7 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
       case 'recThunderSpawn': {
         this.spawnPattern(script.recThunderPattern, script.bankedThunder, null, st(REC_THUNDER_T + MM_CAST + MM_HIT_DELAY));
         this.gazeRule = { plan: this.gazeShort, rf: script.gc[0].rf };
-        this.hint = `REMEMBER: this Thunder is ${script.bankedThunder.toUpperCase()} (Mana Charge banked it). Line up on the lane edge — gazes resolve right after.`;
+        this.hint = `REMEMBER: this Thunder is ${script.bankedThunder.toUpperCase()} (Mana Charge banked it). Line up ${script.bankedThunder === 'fake' ? 'INSIDE a lane — fakes hit everything outside them' : 'on the lane edge'} — gazes resolve right after.`;
         break;
       }
       case 'recThunderResolve': {
@@ -774,7 +868,7 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
 
       case 'recIceSpawn': {
         this.spawnPattern(script.recIcePattern, null, script.bankedIce, st(REC_ICE_T + MM_CAST + MM_HIT_DELAY));
-        this.hint = `REMEMBER: this Blizzard is ${script.bankedIce.toUpperCase()}. Cardinal seams are safe — hold your stack/spread spot.`;
+        this.hint = `REMEMBER: this Blizzard is ${script.bankedIce.toUpperCase()}. All four quadrants show (half real, half fake) — the cardinal seams stay safe either way: hold your stack/spread spot.`;
         break;
       }
       case 'recIceResolve': {
@@ -798,7 +892,7 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
           st(FINAL_MM_T + MM_CAST + MM_HIT_DELAY),
           script.tsunamiRF !== 'real', // donut fluid: everyone stays in the hole
         );
-        this.hint = `Mana math: banked ${script.bankedThunder}+ring ${script.ringThunder} → Thunder ${fThunder.toUpperCase()}; banked ${script.bankedIce}+ring ${script.ringIce} → Ice ${fIce.toUpperCase()}. Dodge only the real one(s)!`;
+        this.hint = `Mana math: banked ${script.bankedThunder}+ring ${script.ringThunder} → Thunder ${fThunder.toUpperCase()}; banked ${script.bankedIce}+ring ${script.ringIce} → Ice ${fIce.toUpperCase()}. Real hits inside, fake hits outside — stand accordingly!`;
         break;
       }
       case 'fluidResolve': {

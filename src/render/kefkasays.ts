@@ -13,7 +13,7 @@ import {
   STRAY_FLAME_R,
   THUNDER_LANE_W,
 } from '../sim/kefkasays/constants';
-import type { KefkaEngine, Zone } from '../sim/kefkasays/engine';
+import type { IceZone, KefkaEngine, Zone } from '../sim/kefkasays/engine';
 import {
   beginArena,
   drawBossGlyph,
@@ -91,57 +91,107 @@ function zoneAlpha(z: { spawnT: number; hitT: number }, t: number): number {
   return 0.55 + 0.45 * frac;
 }
 
-function drawZone(ctx: CanvasRenderingContext2D, proj: Proj, z: Zone, t: number): void {
-  const { P, k, rot } = proj;
-  const real = z.rf === 'real';
-  const a = zoneAlpha(z, t);
-  const fill = real ? `rgba(235,200,70,${0.26 * a})` : `rgba(150,140,170,${0.14 * a})`;
-  const edge = real ? `rgba(245,215,90,${0.8 * a})` : `rgba(160,150,185,${0.4 * a})`;
+const zoneFill = (a: number) => `rgba(235,200,70,${0.26 * a})`;
+const zoneEdge = (a: number) => `rgba(245,215,90,${0.8 * a})`;
 
-  ctx.beginPath();
-  if (z.kind === 'thunder') {
-    // the two hit lanes: perpendicular offsets [0,10] and [-20,-10] (constants.ts)
-    const n = compass(z.axisDeg, 1);
-    const u = compass(z.axisDeg + 90, 1);
-    for (const [lo, hi] of [
-      [0, THUNDER_LANE_W],
-      [-2 * THUNDER_LANE_W, -THUNDER_LANE_W],
-    ]) {
-      const c = (p: number, q: number): [number, number] =>
-        P({ x: n.x * p + u.x * q, y: n.y * p + u.y * q });
-      const L = R_ARENA + 2;
-      ctx.moveTo(...c(lo, -L));
-      ctx.lineTo(...c(lo, L));
-      ctx.lineTo(...c(hi, L));
-      ctx.lineTo(...c(hi, -L));
-      ctx.closePath();
-    }
-  } else {
-    const [cx0, cy0] = P({ x: 0, y: 0 });
-    const dir = ((z.aimDeg - 90) * Math.PI) / 180 + rot;
-    const half = (ICE_HALF_DEG * Math.PI) / 180;
-    ctx.moveTo(cx0, cy0);
-    ctx.arc(cx0, cy0, (R_ARENA + 2) * k, dir - half, dir + half);
+/** the two hit lanes: perpendicular offsets [0,10] and [-20,-10] (constants.ts) */
+const HIT_LANES: Array<[number, number]> = [
+  [0, THUNDER_LANE_W],
+  [-2 * THUNDER_LANE_W, -THUNDER_LANE_W],
+];
+
+/** append pattern-normal offset stripes [lo,hi] to the current path */
+function pathThunderStripes(
+  ctx: CanvasRenderingContext2D,
+  proj: Proj,
+  axisDeg: number,
+  segs: Array<[number, number]>,
+): void {
+  const n = compass(axisDeg, 1);
+  const u = compass(axisDeg + 90, 1);
+  const c = (p: number, q: number): [number, number] =>
+    proj.P({ x: n.x * p + u.x * q, y: n.y * p + u.y * q });
+  const L = R_ARENA + 2;
+  for (const [lo, hi] of segs) {
+    ctx.moveTo(...c(lo, -L));
+    ctx.lineTo(...c(lo, L));
+    ctx.lineTo(...c(hi, L));
+    ctx.lineTo(...c(hi, -L));
     ctx.closePath();
   }
-  ctx.fillStyle = fill;
-  ctx.fill();
-  ctx.strokeStyle = edge;
-  ctx.lineWidth = real ? 2 : 1.2;
-  ctx.stroke();
+}
 
-  // a FAKE watermark so desaturation is never ambiguous
-  if (!real) {
-    const label =
-      z.kind === 'thunder'
-        ? { x: compass(z.axisDeg, 1).x * 5, y: compass(z.axisDeg, 1).y * 5 }
-        : compass(z.aimDeg, 12);
-    const [lx, ly] = proj.P(label);
-    ctx.fillStyle = `rgba(200,190,230,${0.5 * a})`;
-    ctx.font = `700 ${1.1 * k}px system-ui, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.fillText('FAKE', lx, ly);
+/** append one 90° center cleave wedge to the current path */
+function pathIceWedge(ctx: CanvasRenderingContext2D, proj: Proj, aimDeg: number): void {
+  const { P, k, rot } = proj;
+  const [cx0, cy0] = P({ x: 0, y: 0 });
+  const dir = ((aimDeg - 90) * Math.PI) / 180 + rot;
+  const half = (ICE_HALF_DEG * Math.PI) / 180;
+  ctx.moveTo(cx0, cy0);
+  ctx.arc(cx0, cy0, (R_ARENA + 2) * k, dir - half, dir + half);
+  ctx.closePath();
+}
+
+/**
+ * hints off: every telegraph draws exactly as the game shows it — real and
+ * fake are identical yellow, and reading the caster's orb ring is on you
+ */
+function drawZoneTelegraph(ctx: CanvasRenderingContext2D, proj: Proj, z: Zone, t: number): void {
+  const a = zoneAlpha(z, t);
+  ctx.beginPath();
+  if (z.kind === 'thunder') pathThunderStripes(ctx, proj, z.axisDeg, HIT_LANES);
+  else pathIceWedge(ctx, proj, z.aimDeg);
+  ctx.fillStyle = zoneFill(a);
+  ctx.fill();
+  ctx.strokeStyle = zoneEdge(a);
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+/**
+ * hints on: tint the ground that will actually be LETHAL — real zones as
+ * telegraphed, fake ones inverted to their complement (fakes hit everything
+ * outside the marked area) — so whatever stays transparent is safe to stand on.
+ */
+function drawDeadlyZones(ctx: CanvasRenderingContext2D, proj: Proj, zones: Zone[], t: number): void {
+  const L = R_ARENA + 2;
+  for (const z of zones) {
+    if (z.kind !== 'thunder') continue;
+    const a = zoneAlpha(z, t);
+    const segs: Array<[number, number]> =
+      z.rf === 'real'
+        ? HIT_LANES
+        : [
+            [THUNDER_LANE_W, L],
+            [-THUNDER_LANE_W, 0],
+            [-L, -2 * THUNDER_LANE_W],
+          ];
+    ctx.beginPath();
+    pathThunderStripes(ctx, proj, z.axisDeg, segs);
+    ctx.fillStyle = zoneFill(a);
+    ctx.fill();
+    ctx.strokeStyle = zoneEdge(a);
+    ctx.lineWidth = 2;
+    ctx.stroke();
   }
+
+  // lethal ice = the real quadrants plus (when a fake Blizzard is up) every
+  // quadrant its telegraph does NOT mark; each wedge drawn once
+  const ice = zones.filter((z): z is IceZone => z.kind === 'ice');
+  if (ice.length === 0) return;
+  const a = zoneAlpha(ice[0], t);
+  const realAims = new Set(ice.filter((z) => z.rf === 'real').map((z) => z.aimDeg));
+  const fakeAims = new Set(ice.filter((z) => z.rf === 'fake').map((z) => z.aimDeg));
+  const deadly = [45, 135, 225, 315].filter(
+    (aim) => realAims.has(aim) || (fakeAims.size > 0 && !fakeAims.has(aim)),
+  );
+  ctx.beginPath();
+  for (const aim of deadly) pathIceWedge(ctx, proj, aim);
+  ctx.fillStyle = zoneFill(a);
+  ctx.fill();
+  ctx.strokeStyle = zoneEdge(a);
+  ctx.lineWidth = 2;
+  ctx.stroke();
 }
 
 export function drawKefkaSays(
@@ -209,8 +259,9 @@ export function drawKefkaSays(
     ctx.fill();
   }
 
-  // ---- telegraph zones
-  for (const z of eng.zones) drawZone(ctx, proj, z, t);
+  // ---- telegraph zones: in-game look by default; hints tint the lethal ground
+  if (showHints) drawDeadlyZones(ctx, proj, eng.zones, t);
+  else for (const z of eng.zones) drawZoneTelegraph(ctx, proj, z, t);
 
   drawBossRings(ctx, proj);
   drawBossGlyph(ctx, proj, t);

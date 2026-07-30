@@ -96,15 +96,22 @@ export function rollKefka(seed: number): KefkaScript {
 
   // Real Tsunami = the Dynamic Fluid drop is a stay-in-hole donut, and the
   // final telegraphs resolve 0.6s after it — nobody can leave the hole in
-  // time. Keep the final thunder lanes off the S drop column in that case
-  // (the game's own arrangements never force this collision either: the one
-  // logged pull survived it stacked dead center).
-  if (
-    script.tsunamiRF === 'real' &&
-    script.bankedThunder === script.ringThunder &&
-    (script.finalPattern.thunderAxisDeg === 135 || script.finalPattern.thunderAxisDeg === 225)
-  ) {
-    script.finalPattern.thunderAxisDeg = script.finalPattern.thunderAxisDeg === 135 ? 45 : 315;
+  // time. Constrain the final thunder axis so the S drop column survives in
+  // place (the game's own arrangements never force this collision either:
+  // the one logged pull survived it stacked dead center). A REAL thunder must
+  // miss the column — axes 45/315 leave it in the lane gap; a FAKE one
+  // inverts (it hits everything outside its lanes), so it must COVER the
+  // column — axes 135/225 put it inside the near lane. The fake final ice
+  // needs no such help: the S seam borders a fake quadrant in either pair.
+  if (script.tsunamiRF === 'real') {
+    const axis = script.finalPattern.thunderAxisDeg;
+    if (script.bankedThunder === script.ringThunder) {
+      if (axis === 135 || axis === 225) {
+        script.finalPattern.thunderAxisDeg = axis === 135 ? 45 : 315;
+      }
+    } else if (axis === 45 || axis === 315) {
+      script.finalPattern.thunderAxisDeg = axis === 45 ? 135 : 225;
+    }
   }
   return script;
 }
