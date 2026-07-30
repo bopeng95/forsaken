@@ -1,6 +1,8 @@
+import { MAX_MELEE, R_OUTER_RING } from '../core/constants';
+import { lp } from '../core/motion';
+import type { Spot, Vec2 } from '../core/types';
+import { roleOf } from '../core/types';
 import {
-  MAX_MELEE,
-  R_OUTER_RING,
   TOWER_DIST,
   TOWER_HALFSEP,
   WAYMARK_LETTER_R,
@@ -10,17 +12,7 @@ import {
   prioIndex,
 } from './constants';
 import { SOAK_ORDER, groupMembers } from './randomizer';
-import type { AttemptScript, Group, Spot, Vec2 } from './types';
-import { roleOf } from './types';
-
-/**
- * Local frame: dDeg is a compass direction (0 = "relative north" = away from the
- * towers, clockwise) in the frame where the tower pair midpoint is at local south.
- */
-export function lp(southDeg: number, dDeg: number, r: number): Vec2 {
-  const world = (((southDeg + 180 + dDeg) % 360) * Math.PI) / 180;
-  return { x: r * Math.sin(world), y: -r * Math.cos(world) };
-}
+import type { AttemptScript, Group } from './types';
 
 export interface Duty {
   pos: Vec2;

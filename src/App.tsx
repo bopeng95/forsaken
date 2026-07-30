@@ -1,16 +1,25 @@
 import { useState } from 'react';
 import { GameView } from './components/GameView';
 import { StartScreen } from './components/StartScreen';
-import { findSeed } from './sim/randomizer';
-import type { Spot, StartPrefs } from './sim/types';
+import type { MechanicId, Spot } from './sim/core/types';
+import type { StartPrefs } from './sim/forsaken/types';
+import type { KefkaPrefs } from './sim/kefkasays/types';
+import { MECHANICS, findSeed } from './sim/registry';
 
 function randomSeed(): number {
   return Math.floor(Math.random() * 0x7fffffff);
 }
 
 export default function App() {
+  const [mechanic, setMechanic] = useState<MechanicId>('forsaken');
   const [spot, setSpot] = useState<Spot | null>(null);
-  const [prefs, setPrefs] = useState<StartPrefs>({ group: 'any', icon: 'any' });
+  const [forsakenPrefs, setForsakenPrefs] = useState<StartPrefs>({ group: 'any', icon: 'any' });
+  const [kefkaPrefs, setKefkaPrefs] = useState<KefkaPrefs>({
+    mark: 'any',
+    markWindow: 'any',
+    gaze: 'any',
+    field: 'any',
+  });
   const [seed, setSeed] = useState(0);
   const [run, setRun] = useState(0);
   const [rotateView, setRotateView] = useState(false);
@@ -20,14 +29,20 @@ export default function App() {
   const [speed, setSpeed] = useState(1);
   const [focus, setFocus] = useState<Spot | null>(null);
 
+  // prefs handed to findSeed for the active mechanic
+  const prefsFor = (m: MechanicId): unknown => (m === 'forsaken' ? forsakenPrefs : kefkaPrefs);
+
   if (!spot) {
     return (
       <StartScreen
-        prefs={prefs}
-        onPrefsChange={setPrefs}
-        onStart={(s, p) => {
-          setPrefs(p);
-          setSeed(findSeed(s, p, randomSeed));
+        mechanic={mechanic}
+        onMechanic={setMechanic}
+        forsakenPrefs={forsakenPrefs}
+        onForsakenPrefs={setForsakenPrefs}
+        kefkaPrefs={kefkaPrefs}
+        onKefkaPrefs={setKefkaPrefs}
+        onStart={(s) => {
+          setSeed(findSeed(MECHANICS[mechanic]!, s, prefsFor(mechanic), randomSeed));
           setFocus(null);
           setSpot(s);
         }}
@@ -37,7 +52,8 @@ export default function App() {
 
   return (
     <GameView
-      key={`${spot}:${seed}:${run}`}
+      key={`${mechanic}:${spot}:${seed}:${run}`}
+      mechanic={mechanic}
       spot={spot}
       seed={seed}
       rotateView={rotateView}
@@ -53,7 +69,7 @@ export default function App() {
       focus={focus}
       onFocus={setFocus}
       onNewSeed={() => {
-        setSeed(findSeed(spot, prefs, randomSeed));
+        setSeed(findSeed(MECHANICS[mechanic]!, spot, prefsFor(mechanic), randomSeed));
         setRun((r) => r + 1);
       }}
       onSameSeed={() => setRun((r) => r + 1)}
