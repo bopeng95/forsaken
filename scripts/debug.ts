@@ -2,6 +2,7 @@
  *   MECHANIC=forsaken SEED=49 npx tsx scripts/debug.ts */
 import { SPOTS } from '../src/sim/core/types';
 import type { SimEngine } from '../src/sim/forsaken/engine';
+import type { KefkaEngine } from '../src/sim/kefkasays/engine';
 import { MECHANICS } from '../src/sim/registry';
 
 const def = MECHANICS[(process.env.MECHANIC ?? 'forsaken') as keyof typeof MECHANICS];
@@ -16,6 +17,7 @@ const eng = def.create(script, spot);
 const dt = 1 / 60;
 let lastSet = 0;
 let lastHint = '';
+let lastCue = 'null';
 while (!eng.result && eng.t < 240) {
   // autopilot: walk the user's spot exactly like a bot, then tick the sim
   def.autopilot(eng, spot, dt);
@@ -33,6 +35,19 @@ while (!eng.result && eng.t < 240) {
     lastHint = eng.hint;
     const pos = SPOTS.map((s) => `${s}(${eng.positions[s].x.toFixed(1)},${eng.positions[s].y.toFixed(1)})`).join(' ');
     console.log(`t=${eng.t.toFixed(1)} hint="${lastHint}"\n  pos: ${pos}`);
+  }
+  // kefkasays guides via on-grid cues instead of hint text — trace those too
+  if (def.id === 'kefkasays') {
+    const ke = eng as KefkaEngine;
+    const cue = JSON.stringify(ke.gridCue);
+    if (cue !== lastCue) {
+      lastCue = cue;
+      const tgt = eng.targets[spot];
+      const g = ke.ghostPos;
+      console.log(
+        `t=${eng.t.toFixed(1)} cue=${cue} target=(${tgt.x.toFixed(1)},${tgt.y.toFixed(1)}) ghost=(${g.x.toFixed(1)},${g.y.toFixed(1)})`,
+      );
+    }
   }
 }
 console.log('\nresult:', eng.result, 't=', eng.t.toFixed(1));

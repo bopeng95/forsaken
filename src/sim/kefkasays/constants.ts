@@ -140,6 +140,21 @@ export const STILL_EPS = 0.3;
 export const MOTION_MIN = 0.8;
 /** seconds before an accel expiry at which the stillness snapshot arms */
 export const ACCEL_ARM = 0.7;
+/**
+ * Hints-mode guidance lead: the FREEZE!/MOVE! accel cue appears this many
+ * seconds before bomb expiry (the armed window ACCEL_ARM = 0.7s is too short to
+ * read a label and react). Complying early is always safe: stillness before the
+ * armed window never fails a real bomb, and motion only accumulates inside the
+ * window, where the cue keeps demanding it. Sim-only, not game data.
+ */
+export const ACCEL_CUE_LEAD = 3.0;
+/**
+ * Hints ghost clearance: during pure dodges the dashed ghost is pushed until a
+ * disc this big fits entirely inside safe ground, so the circle never straddles
+ * a telegraph edge (a half-in circle reads as ambiguous). Slightly larger than
+ * the ghost's 1.3y draw radius. Sim-only display tuning, not game data.
+ */
+export const GHOST_CLEAR = 1.6;
 /** real gaze: dot(facing, towards holder) must be below this (strictly looking away) */
 export const GAZE_AWAY_DOT = 0;
 /** fake gaze: must face a shriek holder within 60° */

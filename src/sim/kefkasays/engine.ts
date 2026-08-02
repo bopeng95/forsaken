@@ -18,6 +18,7 @@ import {
 } from './assignments';
 import {
   ACCEL_ARM,
+  ACCEL_CUE_LEAD,
   ACCEL_EXPIRE,
   ANTILIGHT_HIT_T,
   ANTILIGHT_T,
@@ -38,6 +39,7 @@ import {
   GAZE_AWAY_DOT,
   GAZE_EXPIRE,
   GC_APPLY,
+  GHOST_CLEAR,
   GC_CAST,
   GC_T,
   ICE_HALF_DEG,
@@ -70,7 +72,7 @@ import {
 } from './constants';
 import { accelOf, markOf, markWindowOf, shriekOf } from './randomizer';
 import type { KefkaScript, MmPattern, WindowKey } from './types';
-import { combineRF, spreadElem } from './types';
+import { combineRF } from './types';
 
 // ---- Telegraph zones -----------------------------------------------------
 
@@ -119,6 +121,19 @@ export interface HeldDebuff {
   window?: WindowKey;
   /** wound color for 'wound' chips */
   color?: 'white' | 'black';
+}
+
+/** tiny on-grid guidance cue (hints mode): a 1–2 word ALL-CAPS order the
+ *  render layer draws next to a marker instead of prose in the bottom bar */
+export interface GridCue {
+  label: string;
+  /** 'ghost': at targets[userSpot] ("go here and do this");
+   *  'user': at the player token ("do this where you stand") */
+  anchor: 'ghost' | 'user';
+  /** pure dodge — exact position is free, so the drawn ghost may sink
+   *  GHOST_CLEAR deep into safe ground (never set where position IS the duty,
+   *  e.g. seam-parked stacks/spreads under recorded Ice) */
+  dodge?: boolean;
 }
 
 type EventKind =
@@ -267,6 +282,28 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
   /** the live gaze (shriek holders + tell), for the renderer's eye icons */
   get activeGaze(): { holders: [Spot, Spot]; rf: RF } | null {
     return this.gazeRule ? { holders: this.gazeRule.plan.holders, rf: this.gazeRule.rf } : null;
+  }
+
+  /** current on-grid order for the user (hints mode), written at event sites */
+  gridCue: GridCue | null = null;
+
+  /** where the hints ghost is drawn: on a dodge cue the walk target sinks
+   *  GHOST_CLEAR deep into safe ground so the circle never straddles a
+   *  telegraph edge; elsewhere position itself is the duty — raw target */
+  get ghostPos(): Vec2 {
+    const t = this.targets[this.userSpot];
+    return this.gridCue?.dodge ? this.nudgeSafe(t, GHOST_CLEAR) : t;
+  }
+
+  /** hints-mode Acceleration Bomb cue for the user: non-null from
+   *  ACCEL_CUE_LEAD before the bomb expiry until the check resolves.
+   *  Pure function of script + t (like manaRings) — nothing to snapshot. */
+  get accelCue(): { rf: RF; armed: boolean } | null {
+    const acc = accelOf(this.script, this.userSpot);
+    const rf = this.script.gc[acc.gcIdx].rf;
+    const expire = ACCEL_EXPIRE[acc.window] - P4_TRIM;
+    if (this.t < expire - ACCEL_CUE_LEAD || this.t >= expire) return null;
+    return { rf, armed: this.t >= expire - ACCEL_ARM };
   }
   /** stillness/motion accumulation for the armed accel window */
   private armWindow: WindowKey | null = null;
@@ -513,6 +550,7 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
       chaosPos: this.chaosPos,
       phaseLabel: this.phaseLabel,
       effects: this.effects,
+      gridCue: this.gridCue,
       gazeRule: this.gazeRule, // .plan is plain immutable data — a clone is equivalent
       armWindow: this.armWindow,
       armAccum: this.armAccum, // mid-window accumulation restores consistently with prevPos
@@ -528,7 +566,7 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
   }
 
   /** dead ground right now: inside a REAL zone, or outside a FAKE one (fakes invert) */
-  private safeAt(p: Vec2): boolean {
+  private safePoint(p: Vec2): boolean {
     for (const z of this.zones) {
       if (z.rf === 'real' && zoneHit(p, z)) return false;
       if (z.rf === 'fake' && z.kind === 'thunder' && !inThunderLanes(p, z.axisDeg, GRACE)) {
@@ -539,9 +577,23 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
     return fakeIce.length === 0 || fakeIce.some((z) => iceCovers(p, z.aimDeg));
   }
 
+  /** safe at p — and, with clear > 0, across a whole disc of that radius
+   *  (sampled on 8 compass points; zone edges are locally straight, so the
+   *  rim samples bound the disc) */
+  private safeAt(p: Vec2, clear = 0): boolean {
+    if (!this.safePoint(p)) return false;
+    if (clear > 0) {
+      for (let a = 0; a < 360; a += 45) {
+        const d = compass(a, clear);
+        if (!this.safePoint({ x: p.x + d.x, y: p.y + d.y })) return false;
+      }
+    }
+    return true;
+  }
+
   /** nearest safe point to an anchor, searched over small radial/angular offsets */
-  private nudgeSafe(anchor: Vec2): Vec2 {
-    if (this.safeAt(anchor)) return anchor;
+  private nudgeSafe(anchor: Vec2, clear = 0): Vec2 {
+    if (this.safeAt(anchor, clear)) return anchor;
     const r0 = Math.hypot(anchor.x, anchor.y);
     const a0 = Math.atan2(anchor.x, -anchor.y);
     for (let dAng = 0; dAng <= 180; dAng += 7.5) {
@@ -550,7 +602,7 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
           const r = Math.min(Math.max(r0 + dr, 4.2), R_ARENA - 1);
           const a = ((a0 * 180) / Math.PI + dAng * sign) as number;
           const p = compass(a, r);
-          if (this.safeAt(p)) return p;
+          if (this.safeAt(p, clear)) return p;
         }
       }
     }
@@ -709,6 +761,10 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
       case 'setup': {
         this.phaseLabel = 'Kefka Says';
         this.retargetPositions(OPENING_RING);
+        // hints mode goes text-free once the pull starts: guidance moves to the
+        // grid (ghost + gridCue labels); the bottom bar returns only on clear
+        this.hint = '';
+        this.gridCue = null;
         break;
       }
 
@@ -717,47 +773,22 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
         this.phaseLabel = `Debuffs ${i + 1}/3`;
         const roll = script.mm[i];
         this.spawnPattern(script.mmPattern[i], roll.thunder, roll.ice, st(MM_T[i] + MM_CAST + MM_HIT_DELAY));
-        this.hint = `Mystery Magic ${i + 1}: THUNDER lanes are ${roll.thunder.toUpperCase()}, ICE quadrants ${roll.ice.toUpperCase()} — dodge the real, stand INSIDE the fake (fakes hit everything outside them).`;
+        // 'SAFE' makes the counter-intuitive orders trustable (stand INSIDE a
+        // fake telegraph — fakes hit everything outside the marked area)
+        this.gridCue = { label: 'SAFE', anchor: 'ghost', dodge: true };
         break;
       }
       case 'mmResolve': {
         this.resolveZones('Mystery Magic telegraph');
         if (this.result) return;
         this.retargetPositions(OPENING_RING);
+        this.gridCue = null;
         break;
       }
 
       case 'gcApply': {
-        const i = ev.arg as number;
-        if (i < 2) {
-          const g = script.gc[i as 0 | 1];
-          const mine =
-            g.water.includes(this.userSpot) || g.lightning.includes(this.userSpot)
-              ? markOf(script, this.userSpot)
-              : null;
-          const parts: string[] = [`Grand Cross ${i + 1} (${g.rf.toUpperCase()}) debuffs are out.`];
-          if (mine && mine.gcIdx === i) {
-            const win = markWindowOf(script, this.userSpot);
-            const spreads = spreadElem(g.rf) === mine.elem;
-            parts.push(
-              `Your ${mine.elem.toUpperCase()} (${win}) will ${spreads ? 'SPREAD — W/E max melee' : 'STACK — N/S with your role'}.`,
-            );
-          }
-          if (g.shriek.includes(this.userSpot)) {
-            parts.push(`You have the ${i === 0 ? 'SHORT' : 'LONG'} SHRIEK — go under the boss when it's time.`);
-          }
-          if (g.accelShort.includes(this.userSpot) || g.accelLong.includes(this.userSpot)) {
-            const acc = accelOf(script, this.userSpot);
-            parts.push(
-              `Accel bomb (${acc.window}): ${g.rf === 'real' ? 'FREEZE' : 'KEEP MOVING'} when it expires.`,
-            );
-          }
-          this.hint = parts.join(' ');
-        } else {
-          const wound = script.wounds[this.userSpot];
-          const af = script.allagan.includes(this.userSpot);
-          this.hint = `${wound.toUpperCase()} Wound + ${af ? 'ALLAGAN FIELD: you must take the OPPOSITE color' : 'BEYOND DEATH: you must take YOUR color'} (${af ? (wound === 'white' ? 'black' : 'white') : wound}).`;
-        }
+        // no gridCue: the HUD debuff tray shows the new chips (with hint-mode
+        // rf badges), and acting on them is cued by the later retargets
         break;
       }
 
@@ -769,8 +800,10 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
       case 'antilightShow': {
         this.antilightActive = true;
         this.retarget(this.antilight.duties);
+        // the ghost already sits on the correct side even when a fake flood
+        // swaps them — the label names the color so the swap doesn't spook
         const need = this.antilight.needed[this.userSpot];
-        this.hint = `Flood of Naught is ${script.floodRF.toUpperCase()}${script.floodRF === 'fake' ? ' — the orb colors LIE (sides swap)' : ''}. Get hit by ${need.color.toUpperCase()}, stay off the middle laser!`;
+        this.gridCue = { label: `TAKE ${need.color.toUpperCase()}`, anchor: 'ghost' };
         break;
       }
       case 'antilightHit': {
@@ -778,7 +811,8 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
         if (this.result) return;
         this.antilightActive = false;
         this.retarget(this.windowPlans.short.duties);
-        this.hint = `Antilight taken. SHORT window: ${this.windowPlans.short.spread.toUpperCase()} spreads W/E, the other stacks N/S. ${this.windowPlans.short.duties[this.userSpot].label}.`;
+        const spread = this.windowPlans.short.spreadHolders.includes(this.userSpot);
+        this.gridCue = { label: spread ? 'SPREAD' : 'STACK', anchor: 'ghost' };
         break;
       }
       case 'deathSurge': {
@@ -791,14 +825,8 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
         this.armWindow = w;
         this.armAccum = Object.fromEntries(SPOTS.map((s) => [s, 0])) as Record<Spot, number>;
         for (const s of SPOTS) this.wiggleBase[s] = { ...this.targets[s] };
-        const acc = accelOf(script, this.userSpot);
-        if (acc.window === w) {
-          const rf = script.gc[acc.gcIdx].rf;
-          this.hint =
-            rf === 'real'
-              ? `ACCEL BOMB about to blow — STOP MOVING NOW!`
-              : `ACCEL BOMB (fake) about to blow — KEEP WIGGLING!`;
-        }
+        // no gridCue: the user's FREEZE!/MOVE! ring is the derived accelCue,
+        // which leads this event by ACCEL_CUE_LEAD for reaction time
         break;
       }
       case 'accelCheck': {
@@ -818,7 +846,7 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
         if (w === 'short') {
           this.phaseLabel = '1st gazes';
           this.retarget(this.gazeShort.duties);
-          this.hint = `${this.gazeShort.duties[this.userSpot].label}.`;
+          this.gridCue = null;
         } else {
           this.phaseLabel = '2nd gazes';
           // long gaze positions are posed by the gazePose event a moment later
@@ -829,18 +857,19 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
       case 'recThunderSpawn': {
         this.spawnPattern(script.recThunderPattern, script.bankedThunder, null, st(REC_THUNDER_T + MM_CAST + MM_HIT_DELAY));
         this.gazeRule = { plan: this.gazeShort, rf: script.gc[0].rf };
-        this.hint = `REMEMBER: this Thunder is ${script.bankedThunder.toUpperCase()} (Mana Charge banked it). Line up ${script.bankedThunder === 'fake' ? 'INSIDE a lane — fakes hit everything outside them' : 'on the lane edge'} — gazes resolve right after.`;
+        this.gridCue = { label: 'SAFE', anchor: 'ghost', dodge: true };
         break;
       }
       case 'recThunderResolve': {
         this.resolveZones('recorded Thrumming Thunder');
+        this.gridCue = null;
         break;
       }
 
       case 'gazePose': {
         this.retarget(this.gazeLong.duties);
         this.gazeRule = { plan: this.gazeLong, rf: script.gc[1].rf };
-        this.hint = `${this.gazeLong.duties[this.userSpot].label}. ${script.gc[1].rf === 'real' ? 'LOOK AWAY from the shrieks!' : 'LOOK AT the shrieks!'}`;
+        this.gridCue = null;
         break;
       }
 
@@ -849,21 +878,9 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
         this.resolveGaze(w);
         if (this.result) return;
         this.gazeRule = null;
-        if (w === 'short') {
-          this.phaseLabel = 'Entropy';
-          this.retargetPositions(DROP_CLUSTER);
-          this.hint =
-            script.infernoRF === 'real'
-              ? 'Stack mid — drop the Entropy TWISTERS together, then RUN OUT.'
-              : 'Stack mid — Entropy is FAKE, so it drops DONUTS: stay in your hole!';
-        } else {
-          this.phaseLabel = 'Mana Release';
-          this.retargetPositions(DROP_CLUSTER);
-          this.hint =
-            script.tsunamiRF === 'real'
-              ? 'Stack mid — Dynamic Fluid drops DONUTS: stay in your hole, then dodge the final telegraphs.'
-              : 'Stack mid — Dynamic Fluid is FAKE, so it drops TWISTERS: run out, then dodge the final telegraphs.';
-        }
+        this.phaseLabel = w === 'short' ? 'Entropy' : 'Mana Release';
+        this.retargetPositions(DROP_CLUSTER);
+        this.gridCue = { label: 'STACK MID', anchor: 'ghost' };
         break;
       }
 
@@ -876,6 +893,10 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
         const kind = script.infernoRF === 'real' ? 'twister' : 'donut';
         this.spawnDrops(kind, st(STRAY_FLAMES_T + MM_CAST + MM_HIT_DELAY));
         if (kind === 'twister') this.retargetPositions(escapeRing(script, 'long'));
+        this.gridCue =
+          kind === 'twister'
+            ? { label: 'RUN OUT', anchor: 'ghost' }
+            : { label: 'STAY', anchor: 'user' }; // donut: the hole you're in is the spot
         break;
       }
       case 'entropyResolve': {
@@ -883,13 +904,15 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
         if (this.result) return;
         this.phaseLabel = 'Long resolve';
         this.retarget(this.windowPlans.long.duties);
-        this.hint = `LONG window: ${this.windowPlans.long.spread.toUpperCase()} spreads W/E, the other stacks N/S. ${this.windowPlans.long.duties[this.userSpot].label}.`;
+        const spread = this.windowPlans.long.spreadHolders.includes(this.userSpot);
+        this.gridCue = { label: spread ? 'SPREAD' : 'STACK', anchor: 'ghost' };
         break;
       }
 
       case 'recIceSpawn': {
         this.spawnPattern(script.recIcePattern, null, script.bankedIce, st(REC_ICE_T + MM_CAST + MM_HIT_DELAY));
-        this.hint = `REMEMBER: this Blizzard is ${script.bankedIce.toUpperCase()}. All four quadrants show (half real, half fake) — the cardinal seams stay safe either way: hold your stack/spread spot.`;
+        // cardinal seams stay safe under every rf combination — the standing
+        // SPREAD/STACK cue is still the order, so leave gridCue untouched
         break;
       }
       case 'recIceResolve': {
@@ -901,19 +924,25 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
         const kind = script.tsunamiRF === 'real' ? 'donut' : 'twister';
         this.spawnDrops(kind, st(STRAY_SPRAY_T + MM_CAST + MM_HIT_DELAY));
         if (kind === 'twister') this.retargetPositions(escapeRing(script, 'long'));
+        this.gridCue =
+          kind === 'twister'
+            ? { label: 'RUN OUT', anchor: 'ghost' }
+            : { label: 'STAY', anchor: 'user' };
         break;
       }
       case 'finalMmSpawn': {
         const fThunder = combineRF(script.bankedThunder, script.ringThunder);
         const fIce = combineRF(script.bankedIce, script.ringIce);
+        const donutHold = script.tsunamiRF === 'real'; // donut fluid: everyone stays in the hole
         this.spawnPattern(
           script.finalPattern,
           fThunder,
           fIce,
           st(FINAL_MM_T + MM_CAST + MM_HIT_DELAY),
-          script.tsunamiRF !== 'real', // donut fluid: everyone stays in the hole
+          !donutHold,
         );
-        this.hint = `Mana math: banked ${script.bankedThunder}+ring ${script.ringThunder} → Thunder ${fThunder.toUpperCase()}; banked ${script.bankedIce}+ring ${script.ringIce} → Ice ${fIce.toUpperCase()}. Real hits inside, fake hits outside — stand accordingly!`;
+        // donut hold keeps the 'STAY' cue; otherwise the nudged ghost is the dodge
+        if (!donutHold) this.gridCue = { label: 'SAFE', anchor: 'ghost', dodge: true };
         break;
       }
       case 'fluidResolve': {
@@ -924,12 +953,13 @@ export class KefkaEngine extends BaseEngine<KefkaEvent> {
         this.resolveZones('final telegraph');
         if (this.result) return;
         this.phaseLabel = 'Ultima Upsurge';
-        this.hint = 'All resolved — burn the boss through Ultima Upsurge!';
+        this.gridCue = null;
         break;
       }
 
       case 'clear': {
         this.result = { kind: 'clear' };
+        this.gridCue = null;
         this.hint = 'Kefka Says resolved — GG!';
         break;
       }

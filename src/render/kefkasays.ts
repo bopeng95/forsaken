@@ -2,7 +2,7 @@ import woundBlackUrl from '../assets/debuffs/wound-black.png';
 import woundWhiteUrl from '../assets/debuffs/wound-white.png';
 import { R_ARENA } from '../sim/core/constants';
 import type { RF } from '../sim/core/engine';
-import { compass } from '../sim/core/motion';
+import { compass, dist } from '../sim/core/motion';
 import type { Vec2 } from '../sim/core/types';
 import { SPOTS } from '../sim/core/types';
 import {
@@ -323,17 +323,88 @@ export function drawKefkaSays(
     drawToken(ctx, proj, eng.positions[s], s, s === eng.userSpot, eng.facing[s]);
   }
 
-  // ---- strat ghost: where the sim wants the user next (hints mode)
+  // ---- strat guidance (hints mode): the grid IS the instruction — no prose
   if (showHints && !eng.result) {
-    const target = eng.targets[eng.userSpot];
+    const me = eng.positions[eng.userSpot];
+    // on dodge cues ghostPos sinks the marker fully inside safe ground, so the
+    // circle never straddles a telegraph edge
+    const target = eng.ghostPos;
+    // loud while you still have to move, quiet once parked
+    const far = dist(me, target) > 2.5;
+    const alpha = far ? 0.9 : 0.65;
+
+    // ghost: where the sim wants the user next (pulses until reached)
     const [x, y] = P(target);
+    const pulse = far ? 1 + 0.12 * Math.sin(t * 6) : 1;
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
-    ctx.arc(x, y, 1.3 * k, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(255,220,90,0.65)';
+    ctx.arc(x, y, 1.3 * k * pulse, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255,220,90,${alpha})`;
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.setLineDash([]);
+
+    // tiny order label at the cue's anchor
+    if (eng.gridCue) {
+      const [ax, ay] = eng.gridCue.anchor === 'user' ? P(me) : [x, y];
+      ctx.font = `700 ${0.75 * k}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = `rgba(255,220,90,${alpha})`;
+      ctx.fillText(eng.gridCue.label, ax, ay - 2.0 * k);
+    }
+
+    // gaze arrow: align your chevron with it (idealFacing already encodes
+    // look-away vs look-at, so the player never needs the real/fake rule)
+    const ideal = eng.activeGaze ? eng.idealFacing(eng.userSpot) : null;
+    if (ideal) {
+      const f = eng.facing[eng.userSpot];
+      const aligned = f.x * ideal.x + f.y * ideal.y > 0.7;
+      const [x0, y0] = P({ x: me.x + ideal.x * 1.7, y: me.y + ideal.y * 1.7 });
+      const [x1, y1] = P({ x: me.x + ideal.x * 3.4, y: me.y + ideal.y * 3.4 });
+      const col = aligned
+        ? 'rgba(110,220,140,0.9)'
+        : `rgba(255,220,90,${0.75 + 0.2 * Math.sin(t * 6)})`;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.strokeStyle = col;
+      ctx.lineWidth = aligned ? 2 : 3;
+      ctx.stroke();
+      const ang = Math.atan2(y1 - y0, x1 - x0);
+      const ah = 0.55 * k;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x1 - ah * Math.cos(ang - 0.5), y1 - ah * Math.sin(ang - 0.5));
+      ctx.lineTo(x1 - ah * Math.cos(ang + 0.5), y1 - ah * Math.sin(ang + 0.5));
+      ctx.closePath();
+      ctx.fillStyle = col;
+      ctx.fill();
+      ctx.font = `700 ${0.7 * k}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = col;
+      ctx.fillText('LOOK', x1 + (x1 - x0) * 0.35, y1 + (y1 - y0) * 0.35);
+    }
+
+    // accel bomb ring: FREEZE (real) / MOVE (fake), escalating SOON → ! so the
+    // player doesn't stop dead while still walking to their spot
+    const accel = eng.accelCue;
+    if (accel) {
+      const real = accel.rf === 'real';
+      const [ux, uy] = P(me);
+      const a = accel.armed ? 0.65 + 0.3 * Math.sin(t * 10) : 0.5;
+      const col = real ? `rgba(255,80,80,${a})` : `rgba(110,220,140,${a})`;
+      ctx.beginPath();
+      ctx.arc(ux, uy, 1.8 * k, 0, Math.PI * 2);
+      ctx.strokeStyle = col;
+      ctx.lineWidth = accel.armed ? 3 : 2;
+      ctx.stroke();
+      ctx.font = `700 ${0.75 * k}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = col;
+      const word = real ? 'FREEZE' : 'MOVE';
+      ctx.fillText(accel.armed ? `${word}!` : `${word} SOON`, ux, uy + 2.6 * k);
+    }
   }
 
   if (eng.result?.kind === 'fail') drawFailOverlay(ctx, proj, eng.result, eng.positions);

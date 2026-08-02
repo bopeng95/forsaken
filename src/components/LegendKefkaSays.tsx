@@ -53,9 +53,37 @@ export function LegendKefkaSays() {
       <h3>On the field</h3>
       <p className="legend-note">
         Telegraphs look identical whether real or fake — reading the caster's orb ring is on you.
-        Fakes invert: they hit everything <em>outside</em> the marked area. With hints on, a dashed
-        ghost circle marks where the strat wants you to stand next.
+        Fakes invert: they hit everything <em>outside</em> the marked area. With hints on, the grid
+        guides you: a dashed ghost pulses where to stand (with a short order like SPREAD or SAFE),
+        an arrow shows which way to face during gazes (green once you're aligned), and an
+        Acceleration Bomb rings your token with FREEZE! (red) or MOVE! (green).
       </p>
+      <Item name="Go here (hints)">
+        <circle
+          cx="14"
+          cy="17"
+          r="8"
+          fill="none"
+          stroke="rgba(255,220,90,0.9)"
+          strokeWidth="2"
+          strokeDasharray="4 4"
+        />
+        <text x="14" y="8" textAnchor="middle" fill="rgba(255,220,90,0.95)" fontSize="7" fontWeight="700">
+          SAFE
+        </text>
+      </Item>
+      <Item name="Face the arrow">
+        <g stroke="rgba(110,220,140,0.95)" strokeWidth="2.5" fill="rgba(110,220,140,0.95)">
+          <line x1="4" y1="20" x2="19" y2="8" />
+          <path d="M23 5 L20.5 12 L16 6.5 Z" stroke="none" />
+        </g>
+      </Item>
+      <Item name="Accel: FREEZE!/MOVE!">
+        <circle cx="14" cy="16" r="9" fill="none" stroke="rgba(255,80,80,0.95)" strokeWidth="2.5" />
+        <text x="14" y="8" textAnchor="middle" fill="rgba(255,80,80,0.95)" fontSize="6.5" fontWeight="700">
+          FREEZE!
+        </text>
+      </Item>
       <Item name="Thunder lanes">
         {/* -15° and 24x7 keep the rotated corners inside the 28x28 viewBox */}
         <g fill="rgba(235,200,70,0.45)" stroke="rgba(245,215,90,0.9)" strokeWidth="1">
