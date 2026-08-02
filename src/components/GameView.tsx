@@ -513,8 +513,8 @@ export function GameView({
           </div>
         )}
 
-        {showHints && !(blindBait && fHud?.baitActive) && (
-          <div className="hud-bottom">{ui?.hint}</div>
+        {showHints && !(blindBait && fHud?.baitActive) && ui?.hint && (
+          <div className="hud-bottom">{ui.hint}</div>
         )}
         </div>
         <div className="side-col">
